@@ -35,6 +35,8 @@ use tracing::instrument;
 
 mod prover;
 mod verifier;
+#[cfg(feature = "distributed")]
+pub mod dist_sum_fold;
 
 /// Trait for doing sum check protocols.
 pub trait SumCheck<F: PrimeField> {
