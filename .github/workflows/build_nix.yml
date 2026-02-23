@@ -18,7 +18,7 @@ jobs:
         uses: cachix/install-nix-action@V27
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build
         run: nix develop -c cargo build --all-targets --release --workspace
