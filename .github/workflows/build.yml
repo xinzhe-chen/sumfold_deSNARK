@@ -21,6 +21,7 @@ jobs:
       - name: Install Rust Toolchain (from rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-02-22
           components: rustfmt
 
       - name: Rust Cache
