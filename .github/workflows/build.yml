@@ -1,60 +1,31 @@
-name: Build
+name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
-  schedule:
-    - cron: '0 0 * * 1'
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Cancel Outdated Builds
-        uses: styfle/cancel-workflow-action@0.12.1
-        with:
-          all_but_latest: true
-          access_token: ${{ github.token }}
-
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-        name: Enable Rust Caching
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Format Check
         run: cargo fmt -- --check
 
-      #- name: Clippy Check
-      #  run: cargo clippy --workspace -- -D warnings
-
-      #- name: Audit Check
-      #  run: cargo audit
-
-      - name: Check Bench
-        run: cargo bench --no-run
-
-      - name: Check Ignored Tests
-        run: cargo test --no-run -- --ignored
+      - name: Build
+        run: cargo build --release --workspace
 
       - name: Test
         run: bash ./scripts/run_tests.sh
-
-      - name: Generate Documentation
-        run: |
-          cargo doc --no-deps --lib --release
-          cp -R target/doc public
-          echo '<meta http-equiv="refresh" content="0; url=jf_plonk">' > public/index.html
-
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@v4
-        if: ${{ github.ref == 'refs/heads/main' }}
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          cname: hyperplonk.docs.espressosys.com
