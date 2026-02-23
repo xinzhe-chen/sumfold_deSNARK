@@ -18,7 +18,7 @@ log = "0.4"
 rayon = { version = "1.5.2" }
 tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1.0"
 subroutines = { path = "../subroutines", features = ["distributed"] }
 transcript = { path = "../transcript" }
 util = { path = "../util" }
