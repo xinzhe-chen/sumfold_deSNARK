@@ -8,13 +8,15 @@
 
 use std::time::Duration;
 
-use ark_ec::pairing::Pairing;
-use errors::HyperPlonkErrors;
-use subroutines::{pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck,IOPProof};
 use crate::mock::MockCircuit;
 use arithmetic::VirtualPolynomial;
-use transcript::IOPTranscript;
+use ark_ec::pairing::Pairing;
+use errors::HyperPlonkErrors;
 use subroutines::BatchProof;
+use subroutines::{
+    pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck, IOPProof,
+};
+use transcript::IOPTranscript;
 mod custom_gate;
 mod errors;
 mod mock;
@@ -51,7 +53,7 @@ where
     fn preprocess(
         index: &Self::Index,
         pcs_srs: &PCS::SRS,
-    ) -> Result<(Self::ProvingKey, Self::VerifyingKey,Duration), HyperPlonkErrors>;
+    ) -> Result<(Self::ProvingKey, Self::VerifyingKey, Duration), HyperPlonkErrors>;
 
     /// Generate HyperPlonk SNARK proof.
     ///
@@ -65,24 +67,31 @@ where
     fn prove(
         f_hats: Vec<VirtualPolynomial<<E as Pairing>::ScalarField>>,
         perm_f_hats: Vec<VirtualPolynomial<<E as Pairing>::ScalarField>>,
-        f_commitments: Vec<Vec<PCS::Commitment>>, 
+        f_commitments: Vec<Vec<PCS::Commitment>>,
         perm_f_commitments: Vec<Vec<PCS::Commitment>>,
         f_q_proof: &IOPProof<E::ScalarField>,
         perm_q_proof: &IOPProof<E::ScalarField>,
         pk: &Self::ProvingKey,
         transcript: &mut self::IOPTranscript<E::ScalarField>,
-    ) -> Result<(Vec<Vec<<E as Pairing>::ScalarField>>, Vec<Vec<<E as Pairing>::ScalarField>>, BatchProof<E, PCS>), HyperPlonkErrors>;
+    ) -> Result<
+        (
+            Vec<Vec<<E as Pairing>::ScalarField>>,
+            Vec<Vec<<E as Pairing>::ScalarField>>,
+            BatchProof<E, PCS>,
+        ),
+        HyperPlonkErrors,
+    >;
 
     fn mul_prove(
         pks: &Self::ProvingKey,
         circuits: Vec<MockCircuit<E::ScalarField>>,
     ) -> Result<
         (
-            Vec<VirtualPolynomial<E::ScalarField>>, 
+            Vec<VirtualPolynomial<E::ScalarField>>,
             Vec<VirtualPolynomial<E::ScalarField>>,
             Vec<Vec<PCS::Commitment>>,
-            Vec<Vec<PCS::Commitment>>, 
-            Duration
+            Vec<Vec<PCS::Commitment>>,
+            Duration,
         ),
         HyperPlonkErrors,
     >;
@@ -97,7 +106,10 @@ where
     /// Outputs:
     /// - Return a boolean on whether the verification is successful
     fn verify(
-        polys: Vec<(Vec<VirtualPolynomial<E::ScalarField>>, Vec<Vec<E::ScalarField>>)>, // (polys, folded_evals) pairs
+        polys: Vec<(
+            Vec<VirtualPolynomial<E::ScalarField>>,
+            Vec<Vec<E::ScalarField>>,
+        )>, // (polys, folded_evals) pairs
         commitments: Vec<Vec<PCS::Commitment>>,
         q_proofs: Vec<IOPProof<E::ScalarField>>,
         batch_opening_proof: PCS::BatchProof,

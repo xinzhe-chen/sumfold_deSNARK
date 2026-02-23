@@ -307,10 +307,8 @@ fn d_open_internal<E: Pairing>(
     polynomial: &DenseMultilinearExtension<E::ScalarField>,
     point: &[E::ScalarField],
 ) -> Result<Option<MultilinearKzgProof<E>>, PCSError> {
-    let open_timer = start_timer!(|| format!(
-        "DeMkzg::d_open with {} variables",
-        polynomial.num_vars
-    ));
+    let open_timer =
+        start_timer!(|| format!("DeMkzg::d_open with {} variables", polynomial.num_vars));
 
     let sub_prover_id = Net::party_id();
     let num_parties = Net::n_parties();

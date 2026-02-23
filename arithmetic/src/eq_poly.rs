@@ -3,8 +3,8 @@
 use ark_ff::PrimeField;
 use rayon::prelude::*;
 
-use crate::util::unsafe_allocate_zero_vec;
 use crate::math::Math;
+use crate::util::unsafe_allocate_zero_vec;
 
 pub struct EqPolynomial<F> {
     r: Vec<F>,

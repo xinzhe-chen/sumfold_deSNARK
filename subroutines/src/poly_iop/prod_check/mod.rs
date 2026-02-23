@@ -15,7 +15,7 @@ use crate::{
         PolyIOP,
     },
 };
-use arithmetic::{VPAuxInfo,VirtualPolynomial};
+use arithmetic::{VPAuxInfo, VirtualPolynomial};
 use ark_ec::pairing::Pairing;
 use ark_ff::{One, PrimeField, Zero};
 use ark_poly::DenseMultilinearExtension;
@@ -96,7 +96,7 @@ where
             Self::ProductCheckProof,
             Self::MultilinearExtension,
             Self::MultilinearExtension,
-            self::VirtualPolynomial<<E as Pairing>::ScalarField>
+            self::VirtualPolynomial<<E as Pairing>::ScalarField>,
         ),
         PolyIOPErrors,
     >;
@@ -136,10 +136,7 @@ pub struct ProductCheckSubClaim<F: PrimeField, ZC: ZeroCheck<F>> {
 /// - a product polynomial commitment
 /// - a polynomial commitment for the fractional polynomial
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct ProductCheckProof<
-    E: Pairing,
-    PCS: PolynomialCommitmentScheme<E>,
-> {
+pub struct ProductCheckProof<E: Pairing, PCS: PolynomialCommitmentScheme<E>> {
     pub prod_x_comm: PCS::Commitment,
     pub frac_comm: PCS::Commitment,
 }
@@ -166,11 +163,10 @@ where
             Self::ProductCheckProof,
             Self::MultilinearExtension,
             Self::MultilinearExtension,
-            self::VirtualPolynomial<<E as Pairing>::ScalarField>
+            self::VirtualPolynomial<<E as Pairing>::ScalarField>,
         ),
         PolyIOPErrors,
     > {
- 
         if fxs.is_empty() {
             return Err(PolyIOPErrors::InvalidParameters("fxs is empty".to_string()));
         }
@@ -195,7 +191,7 @@ where
 
         // generate challenge
         let frac_comm = PCS::commit(pcs_param, &frac_poly)?;
-        let prod_x_comm= PCS::commit(pcs_param, &prod_x)?;
+        let prod_x_comm = PCS::commit(pcs_param, &prod_x)?;
         transcript.append_serializable_element(b"frac(x)", &frac_comm)?;
         transcript.append_serializable_element(b"prod(x)", &prod_x_comm)?;
         let alpha = transcript.get_and_append_challenge(b"alpha")?;
@@ -213,7 +209,6 @@ where
             f_hat,
         ))
     }
-
 
     fn verify(
         proof: &Self::ProductCheckProof,

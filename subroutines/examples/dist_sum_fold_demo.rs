@@ -158,7 +158,11 @@ fn main() {
                 "[Party {}] Distributed protocol completed in {:?}",
                 party_id, duration
             );
-            info!("[Party {}] Proof rounds: {}", party_id, dist_proof.point.len());
+            info!(
+                "[Party {}] Proof rounds: {}",
+                party_id,
+                dist_proof.point.len()
+            );
             info!(
                 "[Party {}] Folded poly vars: {}",
                 party_id, dist_folded_poly.aux_info.num_variables
@@ -195,19 +199,19 @@ fn main() {
                             debug!("[Party {}] dist_v: {:?}", party_id, dist_v);
                             debug!("[Party {}] local_v: {:?}", party_id, local_v);
                         }
-                    }
+                    },
                     Err(e) => {
                         error!("[Party {}] Local sum_fold_v3 failed: {:?}", party_id, e);
-                    }
+                    },
                 }
             }
 
             info!("[Party {}] ════════════════════════════════", party_id);
-        }
+        },
         Err(_) => {
             // Workers reach here - this is expected behavior
             info!("[Party {}] ✓ Completed in {:?}", party_id, duration);
-        }
+        },
     }
 
     info!("[Party {}] Closing network connection...", party_id);

@@ -172,7 +172,6 @@ impl<E: Pairing> PolynomialCommitmentScheme<E> for UnivariateKzgPCS<E> {
         end_timer!(check_time, || format!("Result: {}", res));
         Ok(res)
     }
-    
 }
 
 fn skip_leading_zeros<F: PrimeField, P: DenseUVPolynomial<F>>(p: &P) -> (usize, &[F]) {

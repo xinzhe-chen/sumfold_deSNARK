@@ -61,9 +61,8 @@ impl<F: PrimeField> MockCircuit<F> {
         let mut witnesses: Vec<WitnessColumn<F>> = vec![WitnessColumn::default(); num_witnesses];
 
         for _cs_counter in 0..num_constraints {
-            let mut cur_selectors: Vec<F> = (0..(num_selectors - 1))
-                .map(|_| F::rand(rng))
-                .collect();
+            let mut cur_selectors: Vec<F> =
+                (0..(num_selectors - 1)).map(|_| F::rand(rng)).collect();
             let cur_witness: Vec<F> = (0..num_witnesses).map(|_| F::rand(rng)).collect();
             let mut last_selector = F::zero();
             for (index, (coeff, q, wit)) in gate.gates.iter().enumerate() {
@@ -171,4 +170,3 @@ impl<F: PrimeField> MockCircuit<F> {
         true
     }
 }
-

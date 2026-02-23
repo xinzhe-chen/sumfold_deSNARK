@@ -14,9 +14,9 @@ use crate::{
 use ark_ec::pairing::Pairing;
 use ark_poly::DenseMultilinearExtension;
 
+use arithmetic::VirtualPolynomial;
 use std::sync::Arc;
 use transcript::IOPTranscript;
-use arithmetic::VirtualPolynomial;
 
 /// A permutation subclaim consists of
 /// - the SubClaim from the ProductCheck
@@ -87,7 +87,7 @@ where
             Self::PermutationProof,
             Self::MultilinearExtension,
             Self::MultilinearExtension,
-            self::VirtualPolynomial<<E as Pairing>::ScalarField>
+            self::VirtualPolynomial<<E as Pairing>::ScalarField>,
         ),
         PolyIOPErrors,
     >;
@@ -128,7 +128,6 @@ where
         ),
         PolyIOPErrors,
     > {
-
         if fxs.is_empty() {
             return Err(PolyIOPErrors::InvalidParameters("fxs is empty".to_string()));
         }
@@ -164,25 +163,20 @@ where
             transcript,
         )?;
 
-
-        Ok((proof, prod_poly, frac_poly,f_hat))
+        Ok((proof, prod_poly, frac_poly, f_hat))
     }
-
 
     fn verify(
         proof: &Self::PermutationProof,
         aux_info: &Self::VPAuxInfo,
         transcript: &mut Self::Transcript,
     ) -> Result<Self::PermutationCheckSubClaim, PolyIOPErrors> {
-
-
         let beta = transcript.get_and_append_challenge(b"beta")?;
         let gamma = transcript.get_and_append_challenge(b"gamma")?;
 
         // invoke the zero check on the iop_proof
         let product_check_sub_claim =
             <Self as ProductCheck<E, PCS>>::verify(proof, aux_info, transcript)?;
-
 
         Ok(PermutationCheckSubClaim {
             product_check_sub_claim,

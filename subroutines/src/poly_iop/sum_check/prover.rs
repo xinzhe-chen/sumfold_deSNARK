@@ -14,7 +14,7 @@ use crate::poly_iop::{
 use arithmetic::{fix_variables, VirtualPolynomial};
 use ark_ff::{batch_inversion, PrimeField};
 use ark_poly::DenseMultilinearExtension;
-use ark_std::{cfg_into_iter,vec::Vec};
+use ark_std::{cfg_into_iter, vec::Vec};
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefIterator};
 use std::sync::Arc;
 
@@ -190,10 +190,7 @@ impl<F: PrimeField> IOPProverState<F> {
     /// i.e., when `self.round == self.poly.aux_info.num_variables`.
     ///
     /// Ported from HyperPianist: .agent/HyperPianist/subroutines/src/poly_iop/sum_check/prover.rs
-    pub fn get_final_mle_evaluations(
-        &mut self,
-        challenge: F,
-    ) -> Result<Vec<F>, PolyIOPErrors> {
+    pub fn get_final_mle_evaluations(&mut self, challenge: F) -> Result<Vec<F>, PolyIOPErrors> {
         if self.round != self.poly.aux_info.num_variables {
             return Err(PolyIOPErrors::InvalidProver(
                 "Prover is not finished yet".to_string(),

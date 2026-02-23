@@ -2,8 +2,8 @@
 
 use crate::errors::DeSnarkError;
 use crate::structs::{
-    Config, HyperPlonkProvingKey, HyperPlonkVerifyingKey, MockCircuit, Proof, SumCheckInstance,
-    SumFoldProof, BenchmarkTimings,
+    BenchmarkTimings, Config, HyperPlonkProvingKey, HyperPlonkVerifyingKey, MockCircuit, Proof,
+    SumCheckInstance, SumFoldProof,
 };
 use arithmetic::{build_eq_x_r_vec, eq_poly::EqPolynomial, VPAuxInfo, VirtualPolynomial};
 use ark_ec::pairing::Pairing;
@@ -13,11 +13,11 @@ use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
 use ark_std::test_rng;
+use ark_std::time::Instant;
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 use hyperplonk::prelude::{build_f, eval_f};
 use hyperplonk::HyperPlonkSNARK;
 use std::sync::Arc;
-use ark_std::time::Instant;
 use subroutines::pcs::PolynomialCommitmentScheme;
 use subroutines::poly_iop::prelude::{PolyIOP, SumCheck};
 use subroutines::poly_iop::sum_check::verify_sum_fold;
@@ -75,9 +75,7 @@ where
 ///
 /// WARNING: Uses `test_rng()` — for testing only, not production.
 #[instrument(level = "debug", skip_all, name = "setup")]
-pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(
-    config: &Config,
-) -> Result<PCS::SRS> {
+pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::SRS> {
     // d_commit extends local MLEs (num_vars = log(N/K)) with log(K) party dims,
     // so the SRS must support log(N/K) + log(K) = log(N) = log_num_constraints.
     let supported_log_size = config.log_num_constraints;
@@ -118,7 +116,7 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
         Err(e) => {
             info!("SRS cache miss ({}): {}", path, e);
             return None;
-        }
+        },
     };
     let mut reader = std::io::BufReader::new(file);
     let srs: PCS::SRS = match CanonicalDeserialize::deserialize_uncompressed_unchecked(&mut reader)
@@ -127,7 +125,7 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
         Err(e) => {
             warn!("SRS cache corrupted ({}): {}", path, e);
             return None;
-        }
+        },
     };
 
     // Validate: try trimming to the required size
@@ -135,14 +133,14 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
         Ok(_) => {
             info!("✅ SRS loaded from cache ({})", path);
             Some(srs)
-        }
+        },
         Err(e) => {
             warn!(
                 "SRS cache too small ({}, need log_size={}): {}",
                 path, supported_log_size, e
             );
             None
-        }
+        },
     }
 }
 
@@ -156,10 +154,10 @@ fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
             } else {
                 info!("✅ SRS cached to {}", path);
             }
-        }
+        },
         Err(e) => {
             warn!("Failed to create SRS cache file ({}): {}", path, e);
-        }
+        },
     }
 }
 
@@ -179,7 +177,11 @@ fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
 pub fn make_circuit<E: Pairing, PCS: HyperPlonkPCS<E>>(
     config: &Config,
     srs: &PCS::SRS,
-) -> Result<(ProvingKey<E, PCS>, VerifyingKey<E, PCS>, Vec<MockCircuit<E::ScalarField>>)> {
+) -> Result<(
+    ProvingKey<E, PCS>,
+    VerifyingKey<E, PCS>,
+    Vec<MockCircuit<E::ScalarField>>,
+)> {
     // 1. Generate M partitioned mock circuits
     let num_instances = config.num_instances();
     let constraints_per_party = config.num_constraints() / config.num_parties();
@@ -209,9 +211,8 @@ pub fn make_circuit<E: Pairing, PCS: HyperPlonkPCS<E>>(
     // Override PCS params: preprocess trims to log(N/K), but d_commit needs
     // log(N) because it extends local MLEs with log(K) party variables.
     let d_commit_num_vars = config.log_num_constraints;
-    let (pcs_prover_param, pcs_verifier_param) =
-        PCS::trim(srs, None, Some(d_commit_num_vars))
-            .map_err(|e| DeSnarkError::HyperPlonkError(format!("PCS trim for d_commit: {e}")))?;
+    let (pcs_prover_param, pcs_verifier_param) = PCS::trim(srs, None, Some(d_commit_num_vars))
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("PCS trim for d_commit: {e}")))?;
     pk.pcs_param = pcs_prover_param;
     vk.pcs_param = pcs_verifier_param;
     info!(
@@ -315,7 +316,9 @@ pub fn prove_sumfold<F: PrimeField>(
     transcript: &mut IOPTranscript<F>,
 ) -> Result<(SumCheckInstance<F>, SumFoldProof<F>)> {
     if instances.is_empty() {
-        return Err(DeSnarkError::InvalidParameters("no instances to fold".into()));
+        return Err(DeSnarkError::InvalidParameters(
+            "no instances to fold".into(),
+        ));
     }
     if !instances.len().is_power_of_two() {
         return Err(DeSnarkError::InvalidParameters(format!(
@@ -461,9 +464,7 @@ pub fn prove_sumfold<F: PrimeField>(
 /// # Returns
 /// * `F` - Verified total claimed sum `v_total = Σᵢ vᵢ`
 #[instrument(level = "debug", skip_all, name = "merge_and_verify")]
-pub fn merge_and_verify_sumfold<F: PrimeField>(
-    party_proofs: Vec<SumFoldProof<F>>,
-) -> Result<F> {
+pub fn merge_and_verify_sumfold<F: PrimeField>(party_proofs: Vec<SumFoldProof<F>>) -> Result<F> {
     let k = party_proofs.len();
     if k == 0 {
         return Err(DeSnarkError::InvalidParameters(
@@ -527,12 +528,13 @@ pub fn merge_and_verify_sumfold<F: PrimeField>(
     // Step 2: Verify combined proof as a single SumCheck (log₂(M) rounds)
     // ═══════════════════════════════════════════════════════════════
     let (subclaim, rho) =
-        verify_sum_fold(combined_sum_t, &combined_proof, &party_proofs[0].q_aux_info)
-            .map_err(|e| {
+        verify_sum_fold(combined_sum_t, &combined_proof, &party_proofs[0].q_aux_info).map_err(
+            |e| {
                 DeSnarkError::HyperPlonkError(format!(
                     "Combined sumfold SumCheck verification failed: {e}"
                 ))
-            })?;
+            },
+        )?;
 
     // ═══════════════════════════════════════════════════════════════
     // Step 3: Consistency check: c = v_total · eq(ρ, r_b)
@@ -575,12 +577,11 @@ pub fn prove_hyper_pianist<E: Pairing, PCS: HyperPlonkPCS<E>>(
     transcript: Option<&mut IOPTranscript<E::ScalarField>>,
 ) -> Result<Option<IOPProof<E::ScalarField>>> {
     // Run distributed SumCheck on the folded instance
-    let sumcheck_proof =
-        <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove::<Net>(
-            &instance.poly,
-            transcript,
-        )
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_prove failed: {e}")))?;
+    let sumcheck_proof = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove::<Net>(
+        &instance.poly,
+        transcript,
+    )
+    .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_prove failed: {e}")))?;
 
     // Master has the proof; workers return None
     match sumcheck_proof {
@@ -592,7 +593,7 @@ pub fn prove_hyper_pianist<E: Pairing, PCS: HyperPlonkPCS<E>>(
             );
             // TODO: PCS opening phase (accumulate polys, evaluate, d_multi_open)
             Ok(Some(sumcheck_proof))
-        }
+        },
         None => Ok(None),
     }
 }
@@ -786,8 +787,7 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
     // We must replay SumFold operations first so the transcript state
     // matches, then verify the HyperPianist portion.
     // ═══════════════════════════════════════════════════════════════
-    let mut transcript =
-        <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+    let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
     // Replay SumFold transcript operations
     transcript
@@ -818,16 +818,17 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         proofs: proof.proof.proofs[proof.num_sumfold_rounds..].to_vec(),
     };
 
-    let subclaim =
-        <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::verify(
-            proof.v,
-            &hp_proof,
-            &hp_aux_info,
-            &mut transcript,
-        )
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!(
+    let subclaim = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::verify(
+        proof.v,
+        &hp_proof,
+        &hp_aux_info,
+        &mut transcript,
+    )
+    .map_err(|e| {
+        DeSnarkError::HyperPlonkError(format!(
             "SumCheck verification of HyperPianist proof failed: {e}"
-        )))?;
+        ))
+    })?;
 
     // ═══════════════════════════════════════════════════════════════
     // Step 2 + 3: Gate equation check + PCS verification
@@ -838,9 +839,11 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
     let num_witnesses = circuits[0].witnesses.len();
     let num_instances = circuits.len();
 
-    if let (Some(ref batch_proof), Some(ref sel_commits), Some(ref wit_commits)) =
-        (&proof.batch_openings, &proof.selector_commits, &proof.witness_commits)
-    {
+    if let (Some(ref batch_proof), Some(ref sel_commits), Some(ref wit_commits)) = (
+        &proof.batch_openings,
+        &proof.selector_commits,
+        &proof.witness_commits,
+    ) {
         // ───────────────────────────────────────────────────────────
         // PCS path (per-instance selectors + witnesses):
         //
@@ -943,8 +946,7 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
 
         if !pcs_ok {
             return Err(DeSnarkError::HyperPlonkError(
-                "PCS batch_verify failed: opening proof does not match commitments"
-                    .to_string(),
+                "PCS batch_verify failed: opening proof does not match commitments".to_string(),
             ));
         }
         info!("✅ PCS batch_verify passed");
@@ -1134,8 +1136,7 @@ pub fn dist_prove<E: Pairing>(
 
     // 4c: Aggregate local evaluations across parties to get global evaluations
     let global_evals: Vec<E::ScalarField> = {
-        let all_local_evals: Option<Vec<Vec<E::ScalarField>>> =
-            Net::send_to_master(&local_evals);
+        let all_local_evals: Option<Vec<Vec<E::ScalarField>>> = Net::send_to_master(&local_evals);
         if Net::am_master() {
             let all_evals = all_local_evals.unwrap();
             let r_party = &pcs_point[num_vars..];
@@ -1270,13 +1271,11 @@ mod tests {
         let config = Config::new(2, 10, GateType::Vanilla, 2);
 
         // Setup
-        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config)
-            .expect("SRS generation failed");
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
 
         // Make circuit
-        let (pk, _vk, circuits) =
-            make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
-                .expect("make_circuit failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
 
         // Convert to SumCheck instances
         let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
@@ -1289,7 +1288,8 @@ mod tests {
 
         // Prove sumfold (runs v1, v2, v3 and cross-validates)
         let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
-        let (folded, _proof) = prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
+        let (folded, _proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
 
         // The folded polynomial should have the same num_variables as the original instances
         assert_eq!(
@@ -1298,9 +1298,7 @@ mod tests {
         );
         println!(
             "Folded instance: num_vars={}, max_degree={}, v={:?}",
-            folded.poly.aux_info.num_variables,
-            folded.poly.aux_info.max_degree,
-            folded.sum
+            folded.poly.aux_info.num_variables, folded.poly.aux_info.max_degree, folded.sum
         );
     }
 
@@ -1317,17 +1315,14 @@ mod tests {
         // ν=2 → M=4 instances, μ=10 → N=1024, κ=2 → K=4 parties
         let config = Config::new(2, 10, GateType::Vanilla, 2);
 
-        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config)
-            .expect("SRS generation failed");
-        let (pk, _vk, _) =
-            make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
-                .expect("make_circuit failed");
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, _) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
 
         // K=1: single party folds M=4 instances
         let circuits = config.build_partitioned_circuits::<Fr>();
-        let instances =
-            circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
-                .expect("circuits_to_sumcheck failed");
+        let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
+            .expect("circuits_to_sumcheck failed");
         assert_eq!(instances.len(), 4);
 
         for inst in &instances {
@@ -1335,11 +1330,12 @@ mod tests {
         }
 
         let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
-        let (_folded, proof) = prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
+        let (_folded, proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
 
         // Combine + verify with K=1 (trivial: combined proof == original)
-        let v_total = merge_and_verify_sumfold(vec![proof])
-            .expect("merge_and_verify_sumfold failed");
+        let v_total =
+            merge_and_verify_sumfold(vec![proof]).expect("merge_and_verify_sumfold failed");
 
         println!("Verified: v_total={:?}", v_total);
     }

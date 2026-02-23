@@ -67,9 +67,7 @@ fn main() {
             cli.repetitions,
         );
         // CSV header
-        println!(
-            "nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv"
-        );
+        println!("nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv");
     }
 
     for nv in cli.nv_min..=cli.nv_max {
@@ -127,7 +125,7 @@ fn main() {
                             stats.bytes_recv,
                         );
                     }
-                }
+                },
                 Err(e) => {
                     error!(
                         "❌ [Party {}] dist_prove failed at nv={}, rep={}: {}",
@@ -138,7 +136,7 @@ fn main() {
                     );
                     // Skip remaining reps for this nv
                     break;
-                }
+                },
             }
         }
 
@@ -194,7 +192,7 @@ fn parse_args(args: &[String]) -> CliArgs {
                         .parse::<usize>()
                         .expect("Invalid party ID"),
                 );
-            }
+            },
             "--nv-min" => {
                 i += 1;
                 nv_min = Some(
@@ -203,7 +201,7 @@ fn parse_args(args: &[String]) -> CliArgs {
                         .parse::<usize>()
                         .expect("Invalid nv-min"),
                 );
-            }
+            },
             "--nv-max" => {
                 i += 1;
                 nv_max = Some(
@@ -212,7 +210,7 @@ fn parse_args(args: &[String]) -> CliArgs {
                         .parse::<usize>()
                         .expect("Invalid nv-max"),
                 );
-            }
+            },
             "--reps" => {
                 i += 1;
                 repetitions = args
@@ -220,15 +218,15 @@ fn parse_args(args: &[String]) -> CliArgs {
                     .expect("--reps requires a value")
                     .parse::<usize>()
                     .expect("Invalid repetitions");
-            }
+            },
             arg if !arg.starts_with('-') => {
                 config_path = Some(arg.to_string());
-            }
+            },
             other => {
                 eprintln!("Unknown option: {other}");
                 print_usage(&args[0]);
                 std::process::exit(1);
-            }
+            },
         }
         i += 1;
     }
@@ -246,11 +244,11 @@ fn parse_args(args: &[String]) -> CliArgs {
                 repetitions,
                 config_path: c,
             }
-        }
+        },
         _ => {
             print_usage(&args[0]);
             std::process::exit(1);
-        }
+        },
     }
 }
 

@@ -270,7 +270,7 @@ where
         let pcs_param = &pk.pcs_param;
         let start_prove = Instant::now();
         let batch_opening_proof = pcs_acc.multi_open(pcs_param, transcript)?;
-         println!(
+        println!(
             "--------------Prove Duration----------------{:?}",
             start_prove.elapsed()
         );

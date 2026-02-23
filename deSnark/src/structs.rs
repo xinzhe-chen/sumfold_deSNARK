@@ -93,8 +93,8 @@ impl Config {
     pub fn from_toml_file(path: impl AsRef<Path>) -> Result<(Config, NetworkConfig), String> {
         let content = std::fs::read_to_string(path.as_ref())
             .map_err(|e| format!("Failed to read {}: {e}", path.as_ref().display()))?;
-        let top: TomlTop = toml::from_str(&content)
-            .map_err(|e| format!("Failed to parse TOML: {e}"))?;
+        let top: TomlTop =
+            toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {e}"))?;
         Ok((top.config, top.network))
     }
 
@@ -388,8 +388,12 @@ mod tests {
         let start = Instant::now();
         let circuits_seq = config.build_partitioned_circuits::<Fr>();
         let seq_duration = start.elapsed();
-        println!("Sequential: M={} circuits, N/K={} constraints each, took {:?}",
-            circuits_seq.len(), circuits_seq[0].index.params.num_constraints, seq_duration);
+        println!(
+            "Sequential: M={} circuits, N/K={} constraints each, took {:?}",
+            circuits_seq.len(),
+            circuits_seq[0].index.params.num_constraints,
+            seq_duration
+        );
 
         // Parallel
         #[cfg(feature = "parallel")]
@@ -397,9 +401,16 @@ mod tests {
             let start = Instant::now();
             let circuits_par = config.build_partitioned_circuits_par::<Fr>();
             let par_duration = start.elapsed();
-            println!("Parallel:   M={} circuits, N/K={} constraints each, took {:?}",
-                circuits_par.len(), circuits_par[0].index.params.num_constraints, par_duration);
-            println!("Speedup: {:.2}x", seq_duration.as_secs_f64() / par_duration.as_secs_f64());
+            println!(
+                "Parallel:   M={} circuits, N/K={} constraints each, took {:?}",
+                circuits_par.len(),
+                circuits_par[0].index.params.num_constraints,
+                par_duration
+            );
+            println!(
+                "Speedup: {:.2}x",
+                seq_duration.as_secs_f64() / par_duration.as_secs_f64()
+            );
         }
 
         for circuit in &circuits_seq {

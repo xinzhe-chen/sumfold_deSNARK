@@ -1,10 +1,7 @@
 use crossbeam_channel::{Receiver, Sender};
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
-use mio::{
-    net::TcpStream,
-    Events, Interest, Poll, Token,
-};
+use mio::{net::TcpStream, Events, Interest, Poll, Token};
 use rayon::prelude::*;
 use std::{
     cell::Cell,

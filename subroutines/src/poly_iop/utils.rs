@@ -6,8 +6,8 @@
 
 //! useful macros.
 
-use ark_ff::PrimeField;
 use ark_ff::batch_inversion;
+use ark_ff::PrimeField;
 
 /// Takes as input a struct, and converts them to a series of bytes. All traits
 /// that implement `CanonicalSerialize` can be automatically converted to bytes
@@ -27,7 +27,6 @@ where
     // h/t https://abrams.cc/rust-dropping-things-in-another-thread
     rayon::spawn(move || drop(data));
 }
-
 
 /// Converts an integer value to a bitvector (all values {0,1}) of field elements.
 /// Note: ordering has the MSB in the highest index. All of the following represent the integer 1:

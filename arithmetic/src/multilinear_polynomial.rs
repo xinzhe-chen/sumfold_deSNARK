@@ -192,10 +192,7 @@ pub fn fix_variables_in_place<F: Field>(
     nv: usize,
     partial_point: &[F],
 ) -> usize {
-    assert!(
-        partial_point.len() <= nv,
-        "invalid size of partial point"
-    );
+    assert!(partial_point.len() <= nv, "invalid size of partial point");
     let dim = partial_point.len();
     let mut current_nv = nv;
 
@@ -550,7 +547,11 @@ mod tests {
                 let expected = evaluate_opt(&poly, &full_point);
                 let actual = evaluate_opt(&splits[split_idx], &point);
 
-                assert_eq!(expected, actual, "Mismatch at split_idx={}, n={}", split_idx, n);
+                assert_eq!(
+                    expected, actual,
+                    "Mismatch at split_idx={}, n={}",
+                    split_idx, n
+                );
             }
         }
     }

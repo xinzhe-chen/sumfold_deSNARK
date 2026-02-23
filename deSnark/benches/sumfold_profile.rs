@@ -118,7 +118,10 @@ fn bench_sumfold_e2e() {
     let threads = rayon::current_num_threads();
     println!();
     println!("═══════════════════════════════════════════════════════════════════════");
-    println!("  SumFold E2E — {} threads (set RAYON_NUM_THREADS)", threads);
+    println!(
+        "  SumFold E2E — {} threads (set RAYON_NUM_THREADS)",
+        threads
+    );
     println!("═══════════════════════════════════════════════════════════════════════");
 
     let configs: Vec<(&str, usize, usize, usize)> = vec![
@@ -138,8 +141,10 @@ fn bench_sumfold_e2e() {
         let length = log2(*m) as usize;
         let new_nv = length + nv;
 
-        println!("║  t={} MLEs, length={}, compose_nv={} (2^{} evals) ║",
-                 t, length, new_nv, new_nv);
+        println!(
+            "║  t={} MLEs, length={}, compose_nv={} (2^{} evals) ║",
+            t, length, new_nv, new_nv
+        );
         print_sep();
 
         // sum_fold_v3
@@ -149,8 +154,8 @@ fn bench_sumfold_e2e() {
                 let ss = sums.clone();
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
                 let start = Instant::now();
-                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(ps, ss, &mut transcript)
-                    .unwrap();
+                let _ =
+                    <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(ps, ss, &mut transcript).unwrap();
                 start.elapsed()
             },
             *iters,
@@ -171,8 +176,14 @@ fn bench_sumfold_e2e() {
     println!("║  B (curr dist): v3={:>10.3?}    ║", results[1].1);
     println!("║  C (partition): v3={:>10.3?}    ║", results[2].1);
     print_sep();
-    println!("║  v3 compute speedup A/B = {:.2}x                            ║", a_v3 / b_v3);
-    println!("║  v3 compute speedup A/C = {:.2}x                            ║", a_v3 / c_v3);
+    println!(
+        "║  v3 compute speedup A/B = {:.2}x                            ║",
+        a_v3 / b_v3
+    );
+    println!(
+        "║  v3 compute speedup A/C = {:.2}x                            ║",
+        a_v3 / c_v3
+    );
     print_footer();
 }
 
@@ -194,8 +205,10 @@ fn bench_substages() {
         let length = log2(*m) as usize;
         let new_nv = length + nv;
 
-        println!("║  M={}, nv={}, t={}, length={}, compose_nv={}              ║",
-                 m, nv, t, length, new_nv);
+        println!(
+            "║  M={}, nv={}, t={}, length={}, compose_nv={}              ║",
+            m, nv, t, length, new_nv
+        );
         print_sep();
 
         // Stage 2a: split_by_last_variables
@@ -285,8 +298,8 @@ fn bench_substages() {
                 let ss = sums.clone();
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
                 let start = Instant::now();
-                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(ps, ss, &mut transcript)
-                    .unwrap();
+                let _ =
+                    <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(ps, ss, &mut transcript).unwrap();
                 start.elapsed()
             },
             *iters,
@@ -299,7 +312,11 @@ fn bench_substages() {
         print_row_pct("compose_poly", dur_compose, dur_total);
         print_row_pct("fix_variables (per round)", dur_fix, dur_total);
         let fix_total = dur_fix * (length as u32);
-        print_row_pct(&format!("fix_variables × {} rounds", length), fix_total, dur_total);
+        print_row_pct(
+            &format!("fix_variables × {} rounds", length),
+            fix_total,
+            dur_total,
+        );
         print_sep();
 
         let setup = dur_split + dur_sum_t + dur_merge + dur_compose;

@@ -10,4 +10,6 @@ pub use snark::{
     circuits_to_sumcheck, dist_prove, dist_prove_sumcheck, make_circuit, prove_hyper_pianist,
     prove_sumfold, setup, HyperPlonkPCS,
 };
-pub use structs::{BenchmarkTimings, Config, GateType, MockCircuit, NetworkConfig, Proof, SumCheckInstance};
+pub use structs::{
+    BenchmarkTimings, Config, GateType, MockCircuit, NetworkConfig, Proof, SumCheckInstance,
+};

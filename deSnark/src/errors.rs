@@ -14,4 +14,3 @@ pub enum DeSnarkError {
 }
 
 impl std::error::Error for DeSnarkError {}
-

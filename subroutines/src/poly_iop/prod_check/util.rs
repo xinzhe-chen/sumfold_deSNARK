@@ -61,7 +61,6 @@ pub(super) fn compute_frac_poly<F: PrimeField>(
 pub(super) fn compute_product_poly<F: PrimeField>(
     frac_poly: &Arc<DenseMultilinearExtension<F>>,
 ) -> Result<Arc<DenseMultilinearExtension<F>>, PolyIOPErrors> {
-
     let num_vars = frac_poly.num_vars;
     let frac_evals = &frac_poly.evaluations;
 
@@ -98,7 +97,6 @@ pub(super) fn compute_product_poly<F: PrimeField>(
 
     // prod(1, 1, ..., 1) := 0
     prod_x_evals.push(F::zero());
-
 
     Ok(Arc::new(DenseMultilinearExtension::from_evaluations_vec(
         num_vars,
@@ -151,8 +149,7 @@ pub(super) fn prove_zero_check<F: PrimeField>(
     q_x.add_mle_list(mle_list, *alpha)?;
     q_x.add_mle_list(fxs.to_vec(), -*alpha)?;
 
-    let f_hat= <PolyIOP<F> as ZeroCheck<F>>::mul_prove(&q_x, transcript)?;
-
+    let f_hat = <PolyIOP<F> as ZeroCheck<F>>::mul_prove(&q_x, transcript)?;
 
     Ok((f_hat, q_x))
 }

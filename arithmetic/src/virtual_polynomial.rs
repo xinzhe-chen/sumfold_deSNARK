@@ -11,9 +11,7 @@ use crate::{errors::ArithErrors, multilinear_polynomial::random_zero_mle_list, r
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::CanonicalSerialize;
-use ark_std::{
-    rand::{Rng, RngCore},
-};
+use ark_std::rand::{Rng, RngCore};
 use rayon::prelude::*;
 use std::{cmp::max, collections::HashMap, marker::PhantomData, ops::Add, sync::Arc};
 
@@ -191,7 +189,6 @@ impl<F: PrimeField> VirtualPolynomial<F> {
         mle: Arc<DenseMultilinearExtension<F>>,
         coefficient: F,
     ) -> Result<(), ArithErrors> {
-
         if mle.num_vars != self.aux_info.num_variables {
             return Err(ArithErrors::InvalidParameters(format!(
                 "product has a multiplicand with wrong number of variables {} vs {}",
@@ -227,7 +224,6 @@ impl<F: PrimeField> VirtualPolynomial<F> {
     /// Evaluate the virtual polynomial at point `point`.
     /// Returns an error is point.len() does not match `num_variables`.
     pub fn evaluate(&self, point: &[F]) -> Result<F, ArithErrors> {
-
         if self.aux_info.num_variables != point.len() {
             return Err(ArithErrors::InvalidParameters(format!(
                 "wrong number of variables {} vs {}",
@@ -261,7 +257,6 @@ impl<F: PrimeField> VirtualPolynomial<F> {
         num_products: usize,
         rng: &mut R,
     ) -> Result<(Self, F), ArithErrors> {
-
         let mut sum = F::zero();
         let mut poly = VirtualPolynomial::new(nv);
         for _ in 0..num_products {
@@ -316,7 +311,7 @@ impl<F: PrimeField> VirtualPolynomial<F> {
         }
         copy
     }
-    
+
     /// Multiply every product coefficient by `scalar`, effectively scaling
     /// the entire polynomial: `P(x) → scalar · P(x)`.
     pub fn scale_by_scalar(&mut self, scalar: &F) {
@@ -352,7 +347,6 @@ impl<F: PrimeField> VirtualPolynomial<F> {
     //
     // This function is used in ZeroCheck.
     pub fn build_f_hat(&self, r: &[F]) -> Result<Self, ArithErrors> {
-
         if self.aux_info.num_variables != r.len() {
             return Err(ArithErrors::InvalidParameters(format!(
                 "r.len() is different from number of variables: {} vs {}",

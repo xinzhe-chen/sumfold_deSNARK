@@ -146,7 +146,10 @@ impl FieldChannel {
                         let _e = s.flush();
                     },
                     Err(e) => {
-                        if !matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) {
+                        if !matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        ) {
                             return Err(e);
                         }
                     },
@@ -158,7 +161,10 @@ impl FieldChannel {
                         bytes_in_offset += read;
                     },
                     Err(e) => {
-                        if !matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted) {
+                        if !matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        ) {
                             return Err(e);
                         }
                     },

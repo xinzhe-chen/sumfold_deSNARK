@@ -12,7 +12,7 @@
 use std::time::{Duration, Instant};
 
 use ark_bn254::{Bn254, Fr};
-use ark_ff::{PrimeField, One, Zero};
+use ark_ff::{One, PrimeField, Zero};
 use ark_poly::DenseMultilinearExtension;
 use ark_std::test_rng;
 use std::collections::HashMap;
@@ -114,14 +114,28 @@ fn bench_build_circuits() {
         let m = config.num_instances();
         let n_per_party = config.num_constraints() / config.num_parties();
 
-        let dur_seq = bench_avg(|| { let _ = config.build_partitioned_circuits::<Fr>(); }, 3);
-        let dur_par = bench_avg(|| { let _ = config.build_partitioned_circuits_par::<Fr>(); }, 3);
+        let dur_seq = bench_avg(
+            || {
+                let _ = config.build_partitioned_circuits::<Fr>();
+            },
+            3,
+        );
+        let dur_par = bench_avg(
+            || {
+                let _ = config.build_partitioned_circuits_par::<Fr>();
+            },
+            3,
+        );
 
         let label_seq = format!("seq  M={}, N/K={}", m, n_per_party);
         let label_par = format!("par  M={}, N/K={}", m, n_per_party);
         row(&label_seq, dur_seq);
         row(&label_par, dur_par);
-        println!("  {:<50} {:>12.2}x", "  speedup", dur_seq.as_secs_f64() / dur_par.as_secs_f64());
+        println!(
+            "  {:<50} {:>12.2}x",
+            "  speedup",
+            dur_seq.as_secs_f64() / dur_par.as_secs_f64()
+        );
         println!("  ──────────────────────────────────────────────────────────────────");
     }
     println!("╚══════════════════════════════════════════════════════════════════════╝");
@@ -146,7 +160,12 @@ fn bench_circuits_to_sumcheck() {
         let (pk, _vk, circuits) = make_circuit::<Bn254, PCS>(&config, &srs).unwrap();
 
         let iters = if log_cons <= 14 { 5 } else { 2 };
-        let dur = bench_avg(|| { let _ = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits); }, iters);
+        let dur = bench_avg(
+            || {
+                let _ = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits);
+            },
+            iters,
+        );
 
         let m = config.num_instances();
         let nv = config.log_num_constraints - config.log_num_parties;
@@ -165,13 +184,13 @@ fn bench_sum_fold_versions() {
     println!("  ──────────────────────────────────────────────────────────────────");
 
     let configs = [
-        (10, 4, 3, 2),  // nv=10, m=4
-        (12, 4, 3, 2),  // nv=12, m=4
-        (14, 4, 3, 2),  // nv=14, m=4
-        (12, 8, 3, 2),  // nv=12, m=8
-        (14, 8, 3, 2),  // nv=14, m=8
-        (16, 4, 3, 2),  // nv=16, m=4
-        (16, 8, 3, 2),  // nv=16, m=8
+        (10, 4, 3, 2), // nv=10, m=4
+        (12, 4, 3, 2), // nv=12, m=4
+        (14, 4, 3, 2), // nv=14, m=4
+        (12, 8, 3, 2), // nv=12, m=8
+        (14, 8, 3, 2), // nv=14, m=8
+        (16, 4, 3, 2), // nv=16, m=4
+        (16, 8, 3, 2), // nv=16, m=8
     ];
 
     let iters = 3;
@@ -187,7 +206,8 @@ fn bench_sum_fold_versions() {
                 let sums = sums_orig.clone();
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
                 let start = Instant::now();
-                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold(polys, sums, &mut transcript).unwrap();
+                let _ =
+                    <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold(polys, sums, &mut transcript).unwrap();
                 total += start.elapsed();
             }
             total / iters
@@ -201,7 +221,8 @@ fn bench_sum_fold_versions() {
                 let sums = sums_orig.clone();
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
                 let start = Instant::now();
-                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v2(polys, sums, &mut transcript).unwrap();
+                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v2(polys, sums, &mut transcript)
+                    .unwrap();
                 total += start.elapsed();
             }
             total / iters
@@ -215,7 +236,8 @@ fn bench_sum_fold_versions() {
                 let sums = sums_orig.clone();
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
                 let start = Instant::now();
-                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(polys, sums, &mut transcript).unwrap();
+                let _ = <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(polys, sums, &mut transcript)
+                    .unwrap();
                 total += start.elapsed();
             }
             total / iters
@@ -237,10 +259,15 @@ fn bench_sumcheck_prove() {
 
     let mut rng = test_rng();
     for nv in [10, 12, 14, 16, 18, 20] {
-        let iters = if nv <= 14 { 10 } else if nv <= 18 { 3 } else { 1 };
+        let iters = if nv <= 14 {
+            10
+        } else if nv <= 18 {
+            3
+        } else {
+            1
+        };
 
-        let (poly, _sum) =
-            VirtualPolynomial::<Fr>::rand(nv, (3, 4), 2, &mut rng).unwrap();
+        let (poly, _sum) = VirtualPolynomial::<Fr>::rand(nv, (3, 4), 2, &mut rng).unwrap();
 
         let dur = {
             let mut total = Duration::ZERO;
@@ -321,8 +348,19 @@ fn bench_fix_variables() {
         let mle = DenseMultilinearExtension::<Fr>::rand(nv, &mut rng);
         let r = Fr::from(42u64);
 
-        let iters = if nv <= 16 { 50 } else if nv <= 18 { 10 } else { 3 };
-        let dur = bench_avg(|| { let _ = fix_variables(&mle, &[r]); }, iters);
+        let iters = if nv <= 16 {
+            50
+        } else if nv <= 18 {
+            10
+        } else {
+            3
+        };
+        let dur = bench_avg(
+            || {
+                let _ = fix_variables(&mle, &[r]);
+            },
+            iters,
+        );
 
         let label = format!("nv={} (2^{} evals → 2^{})", nv, nv, nv - 1);
         row(&label, dur);
@@ -349,25 +387,19 @@ fn bench_mle_clone_roundtrip() {
         // Clone out from Arc
         let dur_clone_out = bench_avg(
             || {
-                let _: Vec<DenseMultilinearExtension<Fr>> = mles
-                    .iter()
-                    .map(|x| x.as_ref().clone())
-                    .collect();
+                let _: Vec<DenseMultilinearExtension<Fr>> =
+                    mles.iter().map(|x| x.as_ref().clone()).collect();
             },
             iters,
         );
 
         // Clone back into Arc
-        let cloned: Vec<DenseMultilinearExtension<Fr>> = mles
-            .iter()
-            .map(|x| x.as_ref().clone())
-            .collect();
+        let cloned: Vec<DenseMultilinearExtension<Fr>> =
+            mles.iter().map(|x| x.as_ref().clone()).collect();
         let dur_clone_back = bench_avg(
             || {
-                let _: Vec<Arc<DenseMultilinearExtension<Fr>>> = cloned
-                    .iter()
-                    .map(|x| Arc::new(x.clone()))
-                    .collect();
+                let _: Vec<Arc<DenseMultilinearExtension<Fr>>> =
+                    cloned.iter().map(|x| Arc::new(x.clone())).collect();
             },
             iters,
         );
@@ -432,7 +464,11 @@ fn bench_verify_eval() {
         let label_par = format!("par  M={}, nv={}, {} evals", m, nv, total);
         row(&label_seq, dur_seq);
         row(&label_par, dur_par);
-        println!("  {:<50} {:>12.2}x", "  speedup", dur_seq.as_secs_f64() / dur_par.as_secs_f64());
+        println!(
+            "  {:<50} {:>12.2}x",
+            "  speedup",
+            dur_seq.as_secs_f64() / dur_par.as_secs_f64()
+        );
         println!("  ──────────────────────────────────────────────────────────────────");
     }
     println!("╚══════════════════════════════════════════════════════════════════════╝");
@@ -468,7 +504,9 @@ fn bench_stage3_merge() {
         let iters = if nv <= 12 { 10 } else { 3 };
 
         let dur = bench_avg(
-            || { let _ = stage3_merge_split_mles(&all_splits, m, t, new_num_vars); },
+            || {
+                let _ = stage3_merge_split_mles(&all_splits, m, t, new_num_vars);
+            },
             iters,
         );
 
@@ -495,7 +533,13 @@ fn bench_full_pipeline() {
         let m = config.num_instances();
         let nv = config.log_num_constraints - config.log_num_parties;
 
-        println!("  ── M={}, N=2^{}, K={}, nv={} ──", m, log_cons, 1 << log_parties, nv);
+        println!(
+            "  ── M={}, N=2^{}, K={}, nv={} ──",
+            m,
+            log_cons,
+            1 << log_parties,
+            nv
+        );
 
         // Phase 0: Setup
         let start = Instant::now();
@@ -557,7 +601,13 @@ impl<F: PrimeField> VPEvalHypercube<F> for VirtualPolynomial<F> {
         let mut sum = F::zero();
         for b in 0..(1 << nv) {
             let point: Vec<F> = (0..nv)
-                .map(|i| if (b >> i) & 1 == 1 { F::one() } else { F::zero() })
+                .map(|i| {
+                    if (b >> i) & 1 == 1 {
+                        F::one()
+                    } else {
+                        F::zero()
+                    }
+                })
                 .collect();
             sum += self.evaluate(&point).unwrap();
         }

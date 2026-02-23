@@ -142,10 +142,7 @@ where
             for &idx in ids {
                 *Arc::get_mut(&mut merged).unwrap() += tilde_gs[idx].deref();
             }
-            (
-                Arc::new(DenseMultilinearExtension::clone(&merged)),
-                merged,
-            )
+            (Arc::new(DenseMultilinearExtension::clone(&merged)), merged)
         })
         .unzip();
     end_timer!(timer);
@@ -176,10 +173,7 @@ where
         for (merged_tilde_g, tilde_eq) in
             merged_tilde_gs_copy.into_iter().zip(tilde_eqs.into_iter())
         {
-            sum_check_vp.add_mle_list(
-                [merged_tilde_g, tilde_eq],
-                E::ScalarField::one(),
-            )?;
+            sum_check_vp.add_mle_list([merged_tilde_g, tilde_eq], E::ScalarField::one())?;
         }
         end_timer!(step);
 
@@ -199,7 +193,7 @@ where
                 return Err(PCSError::InvalidProver(
                     "Sumcheck in distributed batch proving failed".to_string(),
                 ));
-            }
+            },
         }
     };
     end_timer!(timer);
@@ -243,8 +237,7 @@ where
     // this by splitting the open into local rounds + master-aggregated
     // party-dimension rounds.
     let step = start_timer!(|| "pcs open g'");
-    let g_prime_proof_opt =
-        super::deMkzg::DeMkzg::<E>::d_open(prover_param, &g_prime, &a2)?;
+    let g_prime_proof_opt = super::deMkzg::DeMkzg::<E>::d_open(prover_param, &g_prime, &a2)?;
     end_timer!(step);
 
     end_timer!(open_timer);
@@ -340,7 +333,7 @@ where
             return Err(PCSError::InvalidProver(
                 "Sumcheck in batch verification failed".to_string(),
             ));
-        }
+        },
     };
     let tilde_g_eval = subclaim.expected_evaluation;
 

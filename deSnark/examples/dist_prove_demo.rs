@@ -36,11 +36,10 @@ fn main() {
     // Parse: dist_prove_demo --party <ID> <config.toml>
     let (party_id, config_path) = parse_args(&args);
 
-    let (config, mut net_config) =
-        Config::from_toml_file(&config_path).unwrap_or_else(|e| {
-            eprintln!("Error loading {config_path}: {e}");
-            std::process::exit(1);
-        });
+    let (config, mut net_config) = Config::from_toml_file(&config_path).unwrap_or_else(|e| {
+        eprintln!("Error loading {config_path}: {e}");
+        std::process::exit(1);
+    });
     net_config.party_id = party_id;
 
     info!(
@@ -65,14 +64,18 @@ fn main() {
 
     match dist_prove::<Bls12_381>(&config) {
         Ok((_vk, proof, _timings)) => {
-            let role = if proof.is_some() { "master (has proof)" } else { "worker" };
+            let role = if proof.is_some() {
+                "master (has proof)"
+            } else {
+                "worker"
+            };
             info!(
                 "✅ [Party {}] dist_prove completed as {} in {:?}",
                 party_id,
                 role,
                 start.elapsed()
             );
-        }
+        },
         Err(e) => {
             error!(
                 "❌[Party {}] dist_prove failed: {} (elapsed {:?})",
@@ -80,7 +83,7 @@ fn main() {
                 e,
                 start.elapsed()
             );
-        }
+        },
     }
 
     // Deinitialize network after dist_prove
@@ -96,15 +99,20 @@ fn parse_args(args: &[String]) -> (usize, String) {
         match args[i].as_str() {
             "--party" => {
                 i += 1;
-                party_id = Some(args.get(i).expect("--party requires a value").parse::<usize>().expect("Invalid party ID"));
-            }
+                party_id = Some(
+                    args.get(i)
+                        .expect("--party requires a value")
+                        .parse::<usize>()
+                        .expect("Invalid party ID"),
+                );
+            },
             arg if !arg.starts_with('-') => {
                 config_path = Some(arg.to_string());
-            }
+            },
             other => {
                 eprintln!("Unknown option: {other}");
                 std::process::exit(1);
-            }
+            },
         }
         i += 1;
     }
@@ -113,6 +121,6 @@ fn parse_args(args: &[String]) -> (usize, String) {
         _ => {
             eprintln!("Usage: {} --party <ID> <config.toml>", args[0]);
             std::process::exit(1);
-        }
+        },
     }
 }

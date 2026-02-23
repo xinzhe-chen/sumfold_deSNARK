@@ -10,7 +10,8 @@ use crate::errors::DeSnarkError;
 use crate::structs::{SumCheckInstance, SumFoldProof};
 use arithmetic::eq_poly::EqPolynomial;
 use arithmetic::{
-    build_eq_x_r, fix_variables_in_place, unipoly::interpolate_uni_poly, VPAuxInfo, VirtualPolynomial,
+    build_eq_x_r, fix_variables_in_place, unipoly::interpolate_uni_poly, VPAuxInfo,
+    VirtualPolynomial,
 };
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
@@ -22,11 +23,14 @@ use std::sync::Arc;
 use subroutines::poly_iop::prelude::IOPProverMessage;
 use subroutines::poly_iop::sum_check::stage2_compute_sum_t;
 use subroutines::{barycentric_weights, extrapolate, IOPProof};
-use transcript::IOPTranscript;
 use tracing::{debug, info, instrument};
+use transcript::IOPTranscript;
 
 #[cfg(feature = "parallel")]
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
+};
 
 /// Result type for d_sumfold operations.
 pub type Result<T> = std::result::Result<T, DeSnarkError>;
@@ -69,7 +73,11 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
 
     info!(
         "[Party {}] d_sumfold: m={}, t={}, num_vars={}, length={}",
-        N::party_id(), m, t, num_vars, length
+        N::party_id(),
+        m,
+        t,
+        num_vars,
+        length
     );
 
     // ═══════════════════════════════════════════════════════════════
@@ -88,9 +96,13 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     // Master: append aux_info + squeeze rho, then broadcast.
     // Workers: receive rho from master.
     let rho: Vec<F> = if N::am_master() {
-        let tr = transcript.as_deref_mut().expect("master must have transcript");
+        let tr = transcript
+            .as_deref_mut()
+            .expect("master must have transcript");
         tr.append_serializable_element(b"aux info", &q_aux_info)
-            .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript append aux info: {e}")))?;
+            .map_err(|e| {
+                DeSnarkError::HyperPlonkError(format!("transcript append aux info: {e}"))
+            })?;
         let rho = tr
             .get_and_append_challenge_vectors(b"sumfold rho", length)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript squeeze rho: {e}")))?;
@@ -233,11 +245,9 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
                                 *eval = table[b << 1];
                                 *step = table[(b << 1) + 1] - table[b << 1];
                             });
-                        acc[0][b % bucket_count] +=
-                            buf.iter().map(|(eval, _)| eval).product::<F>();
+                        acc[0][b % bucket_count] += buf.iter().map(|(eval, _)| eval).product::<F>();
                         acc[1..].iter_mut().for_each(|acc| {
-                            buf.iter_mut()
-                                .for_each(|(eval, step)| *eval += step as &_);
+                            buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
                             acc[b % bucket_count] +=
                                 buf.iter().map(|(eval, _)| eval).product::<F>();
                         });
@@ -270,14 +280,13 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
                 );
             sum.iter_mut().for_each(|sum| *sum *= coefficient);
 
-            let extrapolation =
-                cfg_into_iter!(0..max_degree - products.len() - 1)
-                    .map(|i| {
-                        let (points, weights) = &extrapolation_aux[products.len()];
-                        let at = F::from((products.len() + 2 + i) as u64);
-                        extrapolate(points, weights, &sum, &at)
-                    })
-                    .collect::<Vec<_>>();
+            let extrapolation = cfg_into_iter!(0..max_degree - products.len() - 1)
+                .map(|i| {
+                    let (points, weights) = &extrapolation_aux[products.len()];
+                    let at = F::from((products.len() + 2 + i) as u64);
+                    extrapolate(points, weights, &sum, &at)
+                })
+                .collect::<Vec<_>>();
             products_sum
                 .iter_mut()
                 .zip(sum.iter().chain(extrapolation.iter()))
@@ -490,10 +499,10 @@ mod tests {
         let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).unwrap();
         let (pk, _vk, circuits) =
             make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs).unwrap();
-        let instances1 = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
-            .unwrap();
-        let instances2 = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
-            .unwrap();
+        let instances1 =
+            circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits).unwrap();
+        let instances2 =
+            circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits).unwrap();
 
         // Run prove_sumfold (reference)
         let mut transcript_ref = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
@@ -502,12 +511,8 @@ mod tests {
             .map(|inst| (inst.poly, inst.sum))
             .unzip();
         let (proof_ref, sum_t_ref, aux_info_ref, _folded_ref, v_ref) =
-            <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(
-                polys_ref,
-                sums_ref,
-                &mut transcript_ref,
-            )
-            .unwrap();
+            <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(polys_ref, sums_ref, &mut transcript_ref)
+                .unwrap();
 
         // Run d_sumfold with MockNet (single party = master)
         // Since we can't use DeMultiNet without real networking,
@@ -520,8 +525,7 @@ mod tests {
         let mut transcript_dist = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
         // Simulate single-party by calling sum_fold_v3 and verifying
         let (proof_dist, sum_t_dist, aux_info_dist, _folded_dist, v_dist) =
-            <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(polys, sums, &mut transcript_dist)
-                .unwrap();
+            <PolyIOP<Fr> as SumCheck<Fr>>::sum_fold_v3(polys, sums, &mut transcript_dist).unwrap();
 
         // Verify they match
         assert_eq!(sum_t_ref, sum_t_dist, "sum_t mismatch");
@@ -538,8 +542,7 @@ mod tests {
 
         // Also verify via merge_and_verify_sumfold with K=1
         let sfp = SumFoldProof::new(proof_dist, sum_t_dist, aux_info_dist, v_dist);
-        let v_verified =
-            crate::snark::merge_and_verify_sumfold(vec![sfp]).unwrap();
+        let v_verified = crate::snark::merge_and_verify_sumfold(vec![sfp]).unwrap();
         assert_eq!(v_verified, v_ref, "merge_and_verify v mismatch");
 
         println!("d_sumfold single-party test passed: v={:?}", v_ref);
