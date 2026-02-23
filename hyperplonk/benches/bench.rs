@@ -187,3 +187,19 @@ fn bench_high_degree_plonk(
 //     );
 //     Ok(())
 // }
+
+fn bench_mock_circuit_zkp_helper(
+    file: &mut File,
+    nv: usize,
+    gate: &CustomizedGates,
+    pcs_srs: &MultilinearUniversalParams<Bls12_381>,
+) -> Result<(), HyperPlonkErrors> {
+    let _ = (gate, pcs_srs);
+
+    // The historical benchmark helper above targets an older HyperPlonk API and
+    // is currently kept as commented reference. Keep the bench target compiling
+    // for CI (`cargo bench --no-run`) until the benchmark is ported.
+    file.write_all(format!("{} {}\n", nv, 0).as_bytes())
+        .unwrap();
+    Ok(())
+}
