@@ -332,9 +332,6 @@ impl Connections {
                         }
                     };
                     std_stream.set_nonblocking(true).unwrap();
-                    std_stream
-                        .set_linger(Some(std::time::Duration::from_secs(3)))
-                        .unwrap();
                     TcpStream::from_std(std_stream)
                 };
                 stream.set_nodelay(true).unwrap();
@@ -349,9 +346,6 @@ impl Connections {
             let listener = std::net::TcpListener::bind(self.peers[self.id].addr).unwrap();
             let (stream, _addr) = listener.accept().unwrap();
             stream.set_nonblocking(true).unwrap();
-            stream
-                .set_linger(Some(std::time::Duration::from_secs(3)))
-                .unwrap();
             let mut stream = TcpStream::from_std(stream);
             stream.set_nodelay(true).unwrap();
             poller

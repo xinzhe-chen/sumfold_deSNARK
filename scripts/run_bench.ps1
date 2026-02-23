@@ -19,12 +19,15 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BIN  = Join-Path $Root "target\release\examples\dist_bench.exe"
 $LogDir = Join-Path $Root "target\bench_logs"
+$PinnedNightly = "nightly-2026-02-22"
+$env:RUSTC = (& rustup which rustc --toolchain $PinnedNightly).Trim()
+$env:RUSTDOC = (& rustup which rustdoc --toolchain $PinnedNightly).Trim()
 
 # ─── Build if needed ──────────────────────────────────────────────
 if (-not (Test-Path $BIN)) {
-    Write-Host "Building dist_bench (release)..." -ForegroundColor Yellow
+    Write-Host "Building dist_bench (release) with $PinnedNightly..." -ForegroundColor Yellow
     Push-Location $Root
-    cargo build --example dist_bench -p deSnark --release
+    & rustup run $PinnedNightly cargo build --example dist_bench -p deSnark --release
     Pop-Location
     if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
     Write-Host "Build complete." -ForegroundColor Green
