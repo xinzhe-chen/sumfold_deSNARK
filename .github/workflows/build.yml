@@ -18,8 +18,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust Toolchain (nightly)
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust Toolchain (from rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@master
         with:
           components: rustfmt
 
