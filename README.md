@@ -24,8 +24,6 @@ rustup run nightly-2026-02-22 bash ./scripts/run_bench.sh large
 
 ```powershell
 # Build
-$env:RUSTC = (rustup which rustc --toolchain nightly-2026-02-22)
-$env:RUSTDOC = (rustup which rustdoc --toolchain nightly-2026-02-22)
 rustup run nightly-2026-02-22 cargo build --release
 
 # Small benchmark (nv = 10..14, M=8, K=4)
