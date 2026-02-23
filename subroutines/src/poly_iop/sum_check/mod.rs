@@ -33,10 +33,10 @@ use transcript::IOPTranscript;
 use deNetwork::{channel::DeSerNet, DeNet};
 use tracing::instrument;
 
-mod prover;
-mod verifier;
 #[cfg(feature = "distributed")]
 pub mod dist_sum_fold;
+mod prover;
+mod verifier;
 
 /// Trait for doing sum check protocols.
 pub trait SumCheck<F: PrimeField> {

@@ -1,7 +1,8 @@
 //! Distributed Sum-Fold Protocol
 //!
-//! This module implements a distributed version of `sum_fold_v3` using the deNetwork crate.
-//! Each sub-prover (worker) handles one merged VP, and the master coordinates the sumcheck rounds.
+//! This module implements a distributed version of `sum_fold_v3` using the
+//! deNetwork crate. Each sub-prover (worker) handles one merged VP, and the
+//! master coordinates the sumcheck rounds.
 //!
 //! # Architecture
 //!
@@ -32,8 +33,8 @@
 //!
 //! # Key Insight
 //!
-//! The sumcheck prover message computation is **additively separable** across VPs.
-//! Each worker computes its local contribution, and the master sums them.
+//! The sumcheck prover message computation is **additively separable** across
+//! VPs. Each worker computes its local contribution, and the master sums them.
 //!
 //! ```text
 //! products_sum[d] = Σᵢ worker_i_products_sum[d]
@@ -41,20 +42,20 @@
 //!
 //! This enables linear scaling with the number of workers.
 
-use crate::poly_iop::sum_check::{
-    barycentric_weights, extrapolate, fix_variables, interpolate_uni_poly, log2,
-    stage2_compute_sum_t, stage3_merge_split_mles, stage4_compose_poly, IOPProof,
-    IOPProverMessage, IOPTranscript, PolyIOPErrors, SumCheck, VPAuxInfo,
+use crate::poly_iop::{
+    sum_check::{
+        barycentric_weights, extrapolate, fix_variables, interpolate_uni_poly, log2,
+        stage2_compute_sum_t, stage3_merge_split_mles, stage4_compose_poly, IOPProof,
+        IOPProverMessage, IOPTranscript, PolyIOPErrors, SumCheck, VPAuxInfo,
+    },
+    PolyIOP,
 };
-use crate::poly_iop::PolyIOP;
 use arithmetic::{build_eq_x_r, eq_poly::EqPolynomial, VirtualPolynomial};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use deNetwork::{DeNet, DeSerNet};
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 /// Message type for distributing merged VPs to workers
 #[derive(Clone, Debug, Default, CanonicalSerialize, CanonicalDeserialize)]
@@ -156,7 +157,16 @@ pub fn master_prepare_and_distribute<F, N>(
     polys: Vec<VirtualPolynomial<F>>,
     sums: Vec<F>,
     transcript: &mut IOPTranscript<F>,
-) -> Result<(DistSumFoldContext<F>, F, VPAuxInfo<F>, Vec<F>, DistributedVPData<F>), PolyIOPErrors>
+) -> Result<
+    (
+        DistSumFoldContext<F>,
+        F,
+        VPAuxInfo<F>,
+        Vec<F>,
+        DistributedVPData<F>,
+    ),
+    PolyIOPErrors,
+>
 where
     F: PrimeField,
     N: DeNet + DeSerNet,
@@ -257,7 +267,8 @@ where
     let mut challenge: Option<F> = None;
 
     for round in 0..length {
-        // Apply fix_variables from previous round's challenge (matches sum_fold_v3 order)
+        // Apply fix_variables from previous round's challenge (matches sum_fold_v3
+        // order)
         if let Some(chal) = challenge {
             challenges.push(chal);
             flattened_ml_extensions
@@ -298,7 +309,9 @@ where
         let new_challenge = transcript.get_and_append_challenge(b"Internal round")?;
 
         // Broadcast challenge to workers
-        let challenge_msg = MasterChallenge { challenge: new_challenge };
+        let challenge_msg = MasterChallenge {
+            challenge: new_challenge,
+        };
         let _received: MasterChallenge<F> = N::recv_from_master_uniform(Some(challenge_msg));
 
         challenge = Some(new_challenge);
@@ -690,7 +703,8 @@ where
     let all_poly_data_opt: Option<Vec<DistributedVPData<F>>> = N::send_to_master(&poly_data);
 
     // Master broadcasts the full set to all parties using recv_from_master_uniform
-    let all_parties_data: Vec<DistributedVPData<F>> = N::recv_from_master_uniform(all_poly_data_opt);
+    let all_parties_data: Vec<DistributedVPData<F>> =
+        N::recv_from_master_uniform(all_poly_data_opt);
 
     // Rebuild all VPs from received data
     let polys: Vec<VirtualPolynomial<F>> = all_parties_data
@@ -816,7 +830,9 @@ where
             prover_msgs.push(message);
 
             let new_challenge = ts.get_and_append_challenge(b"Internal round")?;
-            Some(MasterChallenge { challenge: new_challenge })
+            Some(MasterChallenge {
+                challenge: new_challenge,
+            })
         } else {
             None
         };
@@ -861,7 +877,9 @@ where
         let new_mle: Vec<Arc<DenseMultilinearExtension<F>>> = folded_evals
             .into_iter()
             .map(|evals| {
-                Arc::new(DenseMultilinearExtension::from_evaluations_vec(num_vars, evals))
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    num_vars, evals,
+                ))
             })
             .collect();
 
