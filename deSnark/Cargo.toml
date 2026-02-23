@@ -1,0 +1,58 @@
+[package]
+name = "deSnark"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arithmetic = { path = "../arithmetic" }
+ark-ec = { version = "^0.4.0", default-features = false }
+hyperplonk = { path = "../hyperplonk" }
+ark-ff = { version = "^0.4.0", default-features = false }
+ark-poly = { version = "^0.4.0", default-features = false }
+ark-serialize = { version = "^0.4.0", default-features = false, features = [
+    "derive",
+] }
+ark-std = { version = "^0.4.0", default-features = false }
+displaydoc = { version = "0.2.3", default-features = false }
+log = "0.4"
+rayon = { version = "1.5.2" }
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+subroutines = { path = "../subroutines", features = ["distributed"] }
+transcript = { path = "../transcript" }
+util = { path = "../util" }
+deNetwork = { path = "../deNetwork" }
+
+[dev-dependencies]
+ark-bls12-381 = { version = "0.4.0", default-features = false, features = [
+    "curve",
+] }
+ark-bn254 = { version = "0.4.0", features = ["asm"] }
+env_logger = "0.11"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[bench]]
+name = "sumfold_profile"
+harness = false
+
+[features]
+default = ["parallel"]
+parallel = [
+    "ark-std/parallel",
+    "ark-ff/parallel",
+    "ark-poly/parallel",
+    "ark-ec/parallel",
+    "arithmetic/parallel",
+    "subroutines/parallel",
+    "util/parallel",
+]
+print-trace = [
+    "ark-std/print-trace",
+    "arithmetic/print-trace",
+    "subroutines/print-trace",
+]

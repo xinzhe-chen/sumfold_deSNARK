@@ -1,0 +1,25 @@
+# Benchmark: large nv range (nv = 22..26)
+#
+# M = 8 instances, K = 4 sub-provers
+#
+# Usage:
+#   dist_bench --party <ID> --nv-min 22 --nv-max 26 deSnark/examples/bench_large.toml
+
+[config]
+# ν = log2(M), M = 8 instances
+log_num_instances = 3
+
+# μ = log2(N) — placeholder, overridden by --nv-min / --nv-max
+log_num_constraints = 22
+
+# Gate type
+gate_type = "vanilla"
+
+# κ = log2(K), K = 4 sub-provers
+log_num_parties = 2
+
+# SRS cache (generated once for nv=26, reused for smaller nv)
+srs_path = "srs_large.params"
+
+[network]
+hosts_file = "deSnark/examples/hosts_4.txt"

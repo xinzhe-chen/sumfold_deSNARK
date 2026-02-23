@@ -1,0 +1,24 @@
+# deSnark Distributed Prove Demo Configuration
+#
+# Usage:
+#   dist_prove_demo --party <ID> demo_config.toml
+
+[config]
+# ν = log2(M), where M = number of instances
+log_num_instances = 2 # M = 4
+
+# μ = log2(N), where N = number of constraints per instance
+log_num_constraints = 10 # N = 1024
+
+# Gate type: "vanilla"
+gate_type = "vanilla"
+
+# κ = log2(K), where K = number of parties (sub-provers)
+log_num_parties = 2 # K = 4
+
+# SRS cache file (optional). If set, SRS is loaded from / saved to this path.
+srs_path = "srs.params"
+
+[network]
+# Path to hosts file (one HOST:PORT per line, relative to working dir)
+hosts_file = "deSnark/examples/hosts_4.txt"
