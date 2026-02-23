@@ -141,16 +141,16 @@ fn bench_high_degree_plonk(
 //         start.elapsed().as_micros() / repetition as u128
 //     );
 //     let (pk, vk) =
-//         <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381, MultilinearKzgPCS<Bls12_381>>>::preprocess(
-//             &index, pcs_srs,
+//         <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381,
+// MultilinearKzgPCS<Bls12_381>>>::preprocess(             &index, pcs_srs,
 //         )?;
 //     //==========================================================
 //     // generate a proof
 //     let start = Instant::now();
 //     for _ in 0..repetition {
 //         let _proof =
-//             <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381, MultilinearKzgPCS<Bls12_381>>>::prove(
-//                 &pk,
+//             <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381,
+// MultilinearKzgPCS<Bls12_381>>>::prove(                 &pk,
 //                 &circuit.public_inputs,
 //                 &circuit.witnesses,
 //             )?;
@@ -163,8 +163,8 @@ fn bench_high_degree_plonk(
 //     );
 //     file.write_all(format!("{} {}\n", nv, t).as_ref()).unwrap();
 
-//     let proof = <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381, MultilinearKzgPCS<Bls12_381>>>::prove(
-//         &pk,
+//     let proof = <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381,
+// MultilinearKzgPCS<Bls12_381>>>::prove(         &pk,
 //         &circuit.public_inputs,
 //         &circuit.witnesses,
 //     )?;
@@ -173,8 +173,8 @@ fn bench_high_degree_plonk(
 //     let start = Instant::now();
 //     for _ in 0..repetition {
 //         let verify =
-//             <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381, MultilinearKzgPCS<Bls12_381>>>::verify(
-//                 &vk,
+//             <PolyIOP<Fr> as HyperPlonkSNARK<Bls12_381,
+// MultilinearKzgPCS<Bls12_381>>>::verify(                 &vk,
 //                 &circuit.public_inputs,
 //                 &proof,
 //             )?;

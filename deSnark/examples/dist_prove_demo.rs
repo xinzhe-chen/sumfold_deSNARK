@@ -1,8 +1,9 @@
 //! Distributed Prove Demo (4 nodes)
 //!
 //! Demonstrates the `dist_prove` pipeline across 4 parties.
-//! Currently runs through: network sync → SRS setup → circuit generation + preprocess.
-//! SumFold and HyperPianist phases return errors (not yet implemented).
+//! Currently runs through: network sync → SRS setup → circuit generation +
+//! preprocess. SumFold and HyperPianist phases return errors (not yet
+//! implemented).
 //!
 //! Usage:
 //! ```bash
@@ -16,10 +17,8 @@
 
 use ark_bls12_381::Bls12_381;
 use deNetwork::{DeMultiNet as Net, DeNet};
-use deSnark::snark::dist_prove;
-use deSnark::structs::Config;
-use std::env;
-use std::time::Instant;
+use deSnark::{snark::dist_prove, structs::Config};
+use std::{env, time::Instant};
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
 

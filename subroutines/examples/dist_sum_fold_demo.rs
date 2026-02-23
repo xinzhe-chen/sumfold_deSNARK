@@ -17,13 +17,13 @@ use ark_bls12_381::Fr;
 use ark_std::rand::SeedableRng;
 use deNetwork::{DeMultiNet, DeNet};
 use log::{debug, error, info};
-use std::env;
-use std::time::Instant;
+use std::{env, time::Instant};
 
 use arithmetic::VirtualPolynomial;
-use subroutines::poly_iop::sum_check::dist_sum_fold::dist_sum_fold;
-use subroutines::poly_iop::sum_check::SumCheck;
-use subroutines::poly_iop::PolyIOP;
+use subroutines::poly_iop::{
+    sum_check::{dist_sum_fold::dist_sum_fold, SumCheck},
+    PolyIOP,
+};
 
 /// Generate deterministic seed for party i.
 /// All parties using the same party_id will generate identical polynomials.
@@ -106,9 +106,10 @@ fn main() {
         my_poly.flattened_ml_extensions.len()
     );
 
-    // For verification: master regenerates all polynomials to compare with distributed result.
-    // Using seed = [i as u8; 32] ensures polys[i] is identical to what party i generates
-    // as their my_poly (same deterministic RNG seed produces identical polynomial).
+    // For verification: master regenerates all polynomials to compare with
+    // distributed result. Using seed = [i as u8; 32] ensures polys[i] is
+    // identical to what party i generates as their my_poly (same deterministic
+    // RNG seed produces identical polynomial).
     let (all_polys_clone, all_sums_clone) = if DeMultiNet::am_master() {
         let mut polys = Vec::with_capacity(m);
         let mut sums = Vec::with_capacity(m);

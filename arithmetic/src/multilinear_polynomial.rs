@@ -174,11 +174,12 @@ fn fix_one_variable_helper<F: Field>(data: &[F], nv: usize, point: &F) -> Vec<F>
 }
 
 /// Fix variables in-place without allocating new vectors.
-/// Overwrites the first half of the evaluation buffer and returns the new effective length.
-/// This is more efficient than `fix_variables` when the original data is no longer needed.
+/// Overwrites the first half of the evaluation buffer and returns the new
+/// effective length. This is more efficient than `fix_variables` when the
+/// original data is no longer needed.
 ///
-/// This function provides significant speedups (2-23x) over `fix_variables` by avoiding
-/// repeated vector allocations during the folding process.
+/// This function provides significant speedups (2-23x) over `fix_variables` by
+/// avoiding repeated vector allocations during the folding process.
 ///
 /// # Arguments
 /// * `evaluations` - Mutable slice of evaluations, will be modified in-place
@@ -337,10 +338,12 @@ fn fix_last_variable_helper<F: Field>(data: &[F], nv: usize, point: &F) -> Vec<F
 }
 
 /// Threshold for switching to parallel execution in split operations.
-/// Based on empirical testing, parallelization overhead is worth it above this size.
+/// Based on empirical testing, parallelization overhead is worth it above this
+/// size.
 const PARALLEL_SPLIT_THRESHOLD: usize = 1 << 12; // 4096 elements
 
-/// Split an MLE into 2^n sub-MLEs by fixing the last n variables to all binary assignments.
+/// Split an MLE into 2^n sub-MLEs by fixing the last n variables to all binary
+/// assignments.
 ///
 /// For an MLE f(x_1, ..., x_m) with m variables, this produces 2^n MLEs:
 /// - split[0] = f(x_1, ..., x_{m-n}, 0, 0, ..., 0)
@@ -350,10 +353,11 @@ const PARALLEL_SPLIT_THRESHOLD: usize = 1 << 12; // 4096 elements
 /// - split[2^n - 1] = f(x_1, ..., x_{m-n}, 1, 1, ..., 1)
 ///
 /// # Memory Layout Assumption
-/// This function relies on the little-endian bit indexing used by `DenseMultilinearExtension`.
-/// The evaluation at index `i` corresponds to the point where binary digits of `i` give the
-/// variable assignments in order (x_1, x_2, ..., x_m). Thus, fixing the last n variables to
-/// assignment `j` corresponds to taking the j-th contiguous chunk of size 2^(m-n).
+/// This function relies on the little-endian bit indexing used by
+/// `DenseMultilinearExtension`. The evaluation at index `i` corresponds to the
+/// point where binary digits of `i` give the variable assignments in order
+/// (x_1, x_2, ..., x_m). Thus, fixing the last n variables to assignment `j`
+/// corresponds to taking the j-th contiguous chunk of size 2^(m-n).
 ///
 /// Automatically selects parallel or sequential execution based on data size.
 ///
@@ -424,7 +428,8 @@ mod tests {
     use ark_ff::UniformRand;
     use ark_std::test_rng;
 
-    /// Test fix_variables_in_place against fix_variables for small polynomials (serial path)
+    /// Test fix_variables_in_place against fix_variables for small polynomials
+    /// (serial path)
     #[test]
     fn test_fix_variables_in_place_small() {
         let mut rng = test_rng();
@@ -450,7 +455,8 @@ mod tests {
         );
     }
 
-    /// Test fix_variables_in_place for large polynomials (parallel path when feature enabled)
+    /// Test fix_variables_in_place for large polynomials (parallel path when
+    /// feature enabled)
     #[test]
     fn test_fix_variables_in_place_large() {
         let mut rng = test_rng();
@@ -532,7 +538,8 @@ mod tests {
 
             // Verify evaluation consistency:
             // For a random point (x_1, ..., x_{m-n}), evaluate both:
-            // 1. Original poly at (x_1, ..., x_{m-n}, b_1, ..., b_n) where b encodes split index
+            // 1. Original poly at (x_1, ..., x_{m-n}, b_1, ..., b_n) where b encodes split
+            //    index
             // 2. Split poly at (x_1, ..., x_{m-n})
             let point: Vec<Fr> = (0..(m - n)).map(|_| Fr::rand(&mut rng)).collect();
 

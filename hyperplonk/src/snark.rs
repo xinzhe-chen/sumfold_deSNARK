@@ -15,8 +15,7 @@ use crate::{
 use arithmetic::{build_eq_x_r_vec, VirtualPolynomial};
 use ark_ec::pairing::Pairing;
 use ark_poly::DenseMultilinearExtension;
-use ark_std::time::Instant;
-use ark_std::Zero;
+use ark_std::{time::Instant, Zero};
 use rayon::iter::IntoParallelRefIterator;
 #[cfg(feature = "parallel")]
 use rayon::iter::ParallelIterator;
@@ -345,7 +344,7 @@ where
         .concat();
 
         // 构造 PcsAccumulator 并验证批量打开证明
-        //let mut pcs_acc = PcsAccumulator::<E, PCS>::new(f_num_vars);
+        // let mut pcs_acc = PcsAccumulator::<E, PCS>::new(f_num_vars);
         let mut all_commitments = Vec::new();
         let mut all_points = Vec::new();
 
@@ -353,7 +352,7 @@ where
 
         for (poly, comms) in f_hats.iter().zip(commitments.iter().skip(commitment_idx)) {
             for (mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
-                //pcs_acc.insert_poly_and_points(mle, comm, &f_eval_point);
+                // pcs_acc.insert_poly_and_points(mle, comm, &f_eval_point);
                 all_commitments.push(comm.clone());
                 all_points.push(f_eval_point.clone());
             }
@@ -365,7 +364,7 @@ where
             .zip(commitments.iter().skip(commitment_idx))
         {
             for (mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
-                //pcs_acc.insert_poly_and_points(mle, comm, &perm_eval_point);
+                // pcs_acc.insert_poly_and_points(mle, comm, &perm_eval_point);
                 all_commitments.push(comm.clone());
                 all_points.push(perm_eval_point.clone());
             }
@@ -441,13 +440,11 @@ mod tests {
     use super::*;
     use crate::custom_gate::CustomizedGates;
     use ark_bls12_381::Bls12_381;
-    use ark_std::rand::rngs::StdRng;
-    use ark_std::test_rng;
-    use ark_std::time::Instant;
-    use subroutines::SumCheck;
+    use ark_std::{rand::rngs::StdRng, test_rng, time::Instant};
     use subroutines::{
         pcs::prelude::{MultilinearKzgPCS, PolynomialCommitmentScheme},
         poly_iop::PolyIOP,
+        SumCheck,
     };
 
     #[test]

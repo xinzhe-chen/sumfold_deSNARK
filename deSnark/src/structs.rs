@@ -8,9 +8,9 @@ use ark_serialize::{CanonicalSerialize, Compress};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
 use std::path::Path;
-use subroutines::pcs::PolynomialCommitmentScheme;
-use subroutines::poly_iop::prelude::IOPProof;
-use subroutines::{BatchProof, Commitment};
+use subroutines::{
+    pcs::PolynomialCommitmentScheme, poly_iop::prelude::IOPProof, BatchProof, Commitment,
+};
 
 /// Top-level TOML structure: `[config]` + `[network]`.
 #[derive(Deserialize)]
@@ -126,8 +126,9 @@ impl Config {
     }
 
     /// Build M mock circuits for one sub-prover (sequential).
-    /// Each sub-prover has all M instances, but each instance only has N/K constraints.
-    /// Uses a single RNG across all instances so each circuit has different random data.
+    /// Each sub-prover has all M instances, but each instance only has N/K
+    /// constraints. Uses a single RNG across all instances so each circuit
+    /// has different random data.
     pub fn build_partitioned_circuits<F: PrimeField>(&self) -> Vec<MockCircuit<F>> {
         let constraints_per_party = self.num_constraints() / self.num_parties();
         let gate = self.gate_type.to_gate();
@@ -138,8 +139,9 @@ impl Config {
     }
 
     /// Build M mock circuits in parallel using Rayon.
-    /// Each sub-prover has all M instances, but each instance only has N/K constraints.
-    /// Uses per-instance seeds derived from a master RNG for deterministic parallelism.
+    /// Each sub-prover has all M instances, but each instance only has N/K
+    /// constraints. Uses per-instance seeds derived from a master RNG for
+    /// deterministic parallelism.
     #[cfg(feature = "parallel")]
     pub fn build_partitioned_circuits_par<F: PrimeField>(&self) -> Vec<MockCircuit<F>> {
         use ark_std::rand::{RngCore, SeedableRng};
@@ -285,7 +287,8 @@ impl<F: PrimeField> SumFoldProof<F> {
 pub struct BenchmarkTimings {
     /// SRS generation / loading + circuit preprocessing
     pub setup_ms: f64,
-    /// Distributed proving: d_commit + SumFold + SumCheck + commitment folding + d_multi_open + assembly
+    /// Distributed proving: d_commit + SumFold + SumCheck + commitment folding
+    /// + d_multi_open + assembly
     pub prover_ms: f64,
     /// Proof verification: SumCheck replay + gate check + PCS batch_verify
     pub verifier_ms: f64,
@@ -349,7 +352,8 @@ mod tests {
     #[test]
     fn test_build_partitioned_circuits() {
         use ark_bn254::Fr;
-        // ν=2 → M=4 instances, μ=10 → N=1024 constraints per instance, κ=2 → K=4 parties
+        // ν=2 → M=4 instances, μ=10 → N=1024 constraints per instance, κ=2 → K=4
+        // parties
         let config = Config::new(2, 10, GateType::Vanilla, 2);
         let circuits = config.build_partitioned_circuits::<Fr>();
 

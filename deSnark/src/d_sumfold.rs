@@ -1,28 +1,29 @@
 //! Distributed SumFold protocol.
 //!
-//! Each party holds its own M SumCheck instances. Per round, each party computes
-//! a partial prover message from its local data. The master aggregates these
-//! (element-wise sum), appends to transcript, squeezes a challenge, and
+//! Each party holds its own M SumCheck instances. Per round, each party
+//! computes a partial prover message from its local data. The master aggregates
+//! these (element-wise sum), appends to transcript, squeezes a challenge, and
 //! broadcasts. This matches `merge_and_verify_sumfold`'s verification model:
 //! partial prover messages are additively separable.
 
-use crate::errors::DeSnarkError;
-use crate::structs::{SumCheckInstance, SumFoldProof};
-use arithmetic::eq_poly::EqPolynomial;
+use crate::{
+    errors::DeSnarkError,
+    structs::{SumCheckInstance, SumFoldProof},
+};
 use arithmetic::{
-    build_eq_x_r, fix_variables_in_place, unipoly::interpolate_uni_poly, VPAuxInfo,
-    VirtualPolynomial,
+    build_eq_x_r, eq_poly::EqPolynomial, fix_variables_in_place, unipoly::interpolate_uni_poly,
+    VPAuxInfo, VirtualPolynomial,
 };
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{cfg_into_iter, log2};
 use deNetwork::channel::DeSerNet;
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use subroutines::poly_iop::prelude::IOPProverMessage;
-use subroutines::poly_iop::sum_check::stage2_compute_sum_t;
-use subroutines::{barycentric_weights, extrapolate, IOPProof};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use subroutines::{
+    barycentric_weights, extrapolate,
+    poly_iop::{prelude::IOPProverMessage, sum_check::stage2_compute_sum_t},
+    IOPProof,
+};
 use tracing::{debug, info, instrument};
 use transcript::IOPTranscript;
 
@@ -59,7 +60,8 @@ pub type Result<T> = std::result::Result<T, DeSnarkError>;
 ///
 /// # Returns
 /// * `SumCheckInstance` - This party's folded polynomial + partial v
-/// * `SumFoldProof` - This party's partial proof (for `merge_and_verify_sumfold`)
+/// * `SumFoldProof` - This party's partial proof (for
+///   `merge_and_verify_sumfold`)
 #[instrument(level = "debug", skip_all, name = "d_sumfold")]
 pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     polys: Vec<VirtualPolynomial<F>>,
@@ -166,8 +168,8 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     // Verifier replays per round:
     //   transcript.append_serializable_element(b"prover msg", &aggregated_msg)
     //   challenge = verify_round_and_update_state(...)
-    //     which internally does: transcript.get_and_append_challenge(b"Internal round")
-    // ═══════════════════════════════════════════════════════════════
+    //     which internally does: transcript.get_and_append_challenge(b"Internal
+    // round") ═══════════════════════════════════════════════════════════════
     let mut challenge: Option<F> = None;
     let mut prover_msgs: Vec<IOPProverMessage<F>> = Vec::with_capacity(length);
     // Master accumulates aggregated messages for the final proof
@@ -446,8 +448,9 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
 
     // ═══════════════════════════════════════════════════════════════
     // Aggregate sum_t and v on master for the final proof.
-    // Workers keep partial values for their folded_instance (d_prove needs partial_v).
-    // Master needs total values so the proof verifies against aggregated prover messages.
+    // Workers keep partial values for their folded_instance (d_prove needs
+    // partial_v). Master needs total values so the proof verifies against
+    // aggregated prover messages.
     // ═══════════════════════════════════════════════════════════════
     let all_sum_t = N::send_to_master(&partial_sum_t);
     let all_v = N::send_to_master(&partial_v);
@@ -482,12 +485,15 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snark::{circuits_to_sumcheck, make_circuit, prove_sumfold, setup, HyperPlonkPCS};
-    use crate::structs::{Config, GateType};
+    use crate::{
+        snark::{circuits_to_sumcheck, make_circuit, prove_sumfold, setup, HyperPlonkPCS},
+        structs::{Config, GateType},
+    };
     use ark_bn254::{Bn254, Fr};
-    use subroutines::pcs::prelude::MultilinearKzgPCS;
-    use subroutines::poly_iop::prelude::SumCheck;
-    use subroutines::poly_iop::PolyIOP;
+    use subroutines::{
+        pcs::prelude::MultilinearKzgPCS,
+        poly_iop::{prelude::SumCheck, PolyIOP},
+    };
 
     /// Test that d_sumfold with K=1 (single party, acting as master)
     /// produces the same result as prove_sumfold.

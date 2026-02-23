@@ -23,8 +23,9 @@ pub use multilinear_polynomial::{
     split_by_last_variables, DenseMultilinearExtension,
 };
 pub use univariate_polynomial::{build_l, get_uni_domain};
-pub use util::unsafe_allocate_zero_vec;
-pub use util::{bit_decompose, gen_eval_point, get_batched_nv, get_index};
+pub use util::{
+    bit_decompose, gen_eval_point, get_batched_nv, get_index, unsafe_allocate_zero_vec,
+};
 pub use virtual_polynomial::{
     build_eq_x_r, build_eq_x_r_vec, build_eq_x_r_with_coeff, eq_eval, VPAuxInfo, VirtualPolynomial,
 };

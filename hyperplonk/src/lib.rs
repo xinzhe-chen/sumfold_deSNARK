@@ -12,9 +12,9 @@ use crate::mock::MockCircuit;
 use arithmetic::VirtualPolynomial;
 use ark_ec::pairing::Pairing;
 use errors::HyperPlonkErrors;
-use subroutines::BatchProof;
 use subroutines::{
-    pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck, IOPProof,
+    pcs::prelude::PolynomialCommitmentScheme, poly_iop::prelude::PermutationCheck, BatchProof,
+    IOPProof,
 };
 use transcript::IOPTranscript;
 mod custom_gate;

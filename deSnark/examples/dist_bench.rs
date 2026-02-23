@@ -1,7 +1,7 @@
 //! Distributed Benchmark Binary for sumfold_deSNARK
 //!
-//! Sweeps over a range of `nv` (log_num_constraints) values, calling `dist_prove`
-//! for each and collecting performance metrics.
+//! Sweeps over a range of `nv` (log_num_constraints) values, calling
+//! `dist_prove` for each and collecting performance metrics.
 //!
 //! ## Metrics collected (master only)
 //!
@@ -23,16 +23,14 @@
 //! dist_bench --party <ID> --nv-min 10 --nv-max 14 bench_config.toml
 //! ```
 //!
-//! The TOML provides base parameters (log_num_instances, gate_type, log_num_parties,
-//! srs_path, network). The `log_num_constraints` field is overridden per iteration
-//! from the CLI range.
+//! The TOML provides base parameters (log_num_instances, gate_type,
+//! log_num_parties, srs_path, network). The `log_num_constraints` field is
+//! overridden per iteration from the CLI range.
 
 use ark_bn254::Bn254;
 use deNetwork::{DeMultiNet as Net, DeNet};
-use deSnark::snark::dist_prove;
-use deSnark::structs::Config;
-use std::env;
-use std::time::Instant;
+use deSnark::{snark::dist_prove, structs::Config};
+use std::{env, time::Instant};
 use tracing::error;
 use tracing_subscriber::{fmt, EnvFilter};
 

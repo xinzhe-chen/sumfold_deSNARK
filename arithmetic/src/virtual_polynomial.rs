@@ -169,7 +169,8 @@ impl<F: PrimeField> VirtualPolynomial<F> {
     /// Replace all MLEs in this VirtualPolynomial with a new set of MLEs.
     /// Rebuilds the raw_pointers_lookup_table accordingly.
     ///
-    /// Ported from HyperPianist: .agent/HyperPianist/arithmetic/src/virtual_polynomial.rs
+    /// Ported from HyperPianist:
+    /// .agent/HyperPianist/arithmetic/src/virtual_polynomial.rs
     pub fn replace_mles(&mut self, new_mle_list: Vec<Arc<DenseMultilinearExtension<F>>>) {
         self.flattened_ml_extensions = new_mle_list;
         self.raw_pointers_lookup_table = HashMap::new();
@@ -375,23 +376,28 @@ impl<F: PrimeField> VirtualPolynomial<F> {
         println!()
     }
 
-    /// Split this VirtualPolynomial into 2^n sub-polynomials by fixing the last n variables
-    /// of each MLE to all binary assignments.
+    /// Split this VirtualPolynomial into 2^n sub-polynomials by fixing the last
+    /// n variables of each MLE to all binary assignments.
     ///
-    /// For a VirtualPolynomial with m variables, this produces 2^n VirtualPolynomials:
+    /// For a VirtualPolynomial with m variables, this produces 2^n
+    /// VirtualPolynomials:
     /// - split[0]: all MLEs evaluated at f(x_1, ..., x_{m-n}, 0, 0, ..., 0)
     /// - split[1]: all MLEs evaluated at f(x_1, ..., x_{m-n}, 1, 0, ..., 0)
     /// - split[2]: all MLEs evaluated at f(x_1, ..., x_{m-n}, 0, 1, ..., 0)
     /// - ...
-    /// - split[2^n - 1]: all MLEs evaluated at f(x_1, ..., x_{m-n}, 1, 1, ..., 1)
+    /// - split[2^n - 1]: all MLEs evaluated at f(x_1, ..., x_{m-n}, 1, 1, ...,
+    ///   1)
     ///
     /// # Memory Layout Assumption
-    /// This function relies on the little-endian bit indexing used by `DenseMultilinearExtension`.
-    /// The evaluation at index `i` corresponds to the point where binary digits of `i` give the
-    /// variable assignments in order (x_1, x_2, ..., x_m). Thus, fixing the last n variables to
-    /// assignment `j` corresponds to taking the j-th contiguous chunk of size 2^(m-n) from each MLE.
+    /// This function relies on the little-endian bit indexing used by
+    /// `DenseMultilinearExtension`. The evaluation at index `i` corresponds
+    /// to the point where binary digits of `i` give the
+    /// variable assignments in order (x_1, x_2, ..., x_m). Thus, fixing the
+    /// last n variables to assignment `j` corresponds to taking the j-th
+    /// contiguous chunk of size 2^(m-n) from each MLE.
     ///
-    /// Automatically selects parallel or sequential execution based on data size.
+    /// Automatically selects parallel or sequential execution based on data
+    /// size.
     ///
     /// # Arguments
     /// * `n` - Number of last variables to fix (number of bits)
@@ -705,7 +711,8 @@ mod test {
         Arc::new(mle)
     }
 
-    /// Test split_by_last_variables produces correct evaluations for VirtualPolynomial
+    /// Test split_by_last_variables produces correct evaluations for
+    /// VirtualPolynomial
     #[test]
     fn test_virtual_polynomial_split_by_last_variables() -> Result<(), ArithErrors> {
         let mut rng = test_rng();

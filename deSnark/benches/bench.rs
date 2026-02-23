@@ -15,19 +15,20 @@ use ark_bn254::{Bn254, Fr};
 use ark_ff::{One, PrimeField, Zero};
 use ark_poly::DenseMultilinearExtension;
 use ark_std::test_rng;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[allow(unused_imports)]
 use ark_poly::MultilinearExtension;
 
 use arithmetic::{fix_variables, VirtualPolynomial};
-use deSnark::snark::{
-    circuits_to_sumcheck, make_circuit, merge_and_verify_sumfold, prove_sumfold, setup,
+use deSnark::{
+    snark::{circuits_to_sumcheck, make_circuit, merge_and_verify_sumfold, prove_sumfold, setup},
+    structs::{Config, GateType},
 };
-use deSnark::structs::{Config, GateType};
-use subroutines::pcs::prelude::MultilinearKzgPCS;
-use subroutines::poly_iop::prelude::{PolyIOP, SumCheck};
+use subroutines::{
+    pcs::prelude::MultilinearKzgPCS,
+    poly_iop::prelude::{PolyIOP, SumCheck},
+};
 
 type PCS = MultilinearKzgPCS<Bn254>;
 
@@ -516,7 +517,8 @@ fn bench_stage3_merge() {
     println!("╚══════════════════════════════════════════════════════════════════════╝");
 }
 
-/// 10. Full single-machine pipeline: setup → circuit → sumcheck → sumfold → verify
+/// 10. Full single-machine pipeline: setup → circuit → sumcheck → sumfold →
+///     verify
 fn bench_full_pipeline() {
     println!("\n╔══════════════════════════════════════════════════════════════════════╗");
     println!("║  Bench: Full pipeline breakdown (single-machine, no network)        ║");

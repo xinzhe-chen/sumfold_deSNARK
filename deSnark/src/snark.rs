@@ -1,27 +1,32 @@
 //! deSnark protocol functions.
 
-use crate::errors::DeSnarkError;
-use crate::structs::{
-    BenchmarkTimings, Config, HyperPlonkProvingKey, HyperPlonkVerifyingKey, MockCircuit, Proof,
-    SumCheckInstance, SumFoldProof,
+use crate::{
+    errors::DeSnarkError,
+    structs::{
+        BenchmarkTimings, Config, HyperPlonkProvingKey, HyperPlonkVerifyingKey, MockCircuit, Proof,
+        SumCheckInstance, SumFoldProof,
+    },
 };
 use arithmetic::{build_eq_x_r_vec, eq_poly::EqPolynomial, VPAuxInfo, VirtualPolynomial};
-use ark_ec::pairing::Pairing;
-use ark_ec::scalar_mul::variable_base::VariableBaseMSM;
+use ark_ec::{pairing::Pairing, scalar_mul::variable_base::VariableBaseMSM};
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::rand::Rng;
-use ark_std::test_rng;
-use ark_std::time::Instant;
+use ark_std::{rand::Rng, test_rng, time::Instant};
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
-use hyperplonk::prelude::{build_f, eval_f};
-use hyperplonk::HyperPlonkSNARK;
+use hyperplonk::{
+    prelude::{build_f, eval_f},
+    HyperPlonkSNARK,
+};
 use std::sync::Arc;
-use subroutines::pcs::PolynomialCommitmentScheme;
-use subroutines::poly_iop::prelude::{PolyIOP, SumCheck};
-use subroutines::poly_iop::sum_check::verify_sum_fold;
-use subroutines::{BatchProof, Commitment, DeMkzg, IOPProof, MultilinearKzgPCS};
+use subroutines::{
+    pcs::PolynomialCommitmentScheme,
+    poly_iop::{
+        prelude::{PolyIOP, SumCheck},
+        sum_check::verify_sum_fold,
+    },
+    BatchProof, Commitment, DeMkzg, IOPProof, MultilinearKzgPCS,
+};
 use tracing::{debug, info, instrument, warn};
 use transcript::IOPTranscript;
 
@@ -106,7 +111,8 @@ pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::
 }
 
 /// Try to load SRS from file and validate it is large enough.
-/// Returns `None` if file doesn't exist, deserialization fails, or SRS is too small.
+/// Returns `None` if file doesn't exist, deserialization fails, or SRS is too
+/// small.
 fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
     path: &str,
     supported_log_size: usize,
@@ -144,7 +150,8 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
     }
 }
 
-/// Save SRS to file. Logs a warning on failure but does not propagate the error.
+/// Save SRS to file. Logs a warning on failure but does not propagate the
+/// error.
 fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
     match std::fs::File::create(path) {
         Ok(file) => {
@@ -163,7 +170,8 @@ fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
 
 /// Phase 1: Generate circuit, keys, and mock circuits.
 ///
-/// Internally calls HyperPlonk preprocess to generate proving and verifying keys.
+/// Internally calls HyperPlonk preprocess to generate proving and verifying
+/// keys.
 ///
 /// # Arguments
 /// * `config` - Protocol configuration
@@ -172,7 +180,8 @@ fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
 /// # Returns
 /// * `ProvingKey` - Key for proving
 /// * `VerifyingKey` - Key for verification
-/// * `Vec<MockCircuit>` - M circuits (each with index + public_inputs + witnesses)
+/// * `Vec<MockCircuit>` - M circuits (each with index + public_inputs +
+///   witnesses)
 #[instrument(level = "debug", skip_all, name = "make_circuit")]
 pub fn make_circuit<E: Pairing, PCS: HyperPlonkPCS<E>>(
     config: &Config,
@@ -444,7 +453,8 @@ pub fn prove_sumfold<F: PrimeField>(
     Ok((folded_instance, sumfold_proof))
 }
 
-/// Combine and verify K parties' SumFold proofs (pure verifier — no witness data).
+/// Combine and verify K parties' SumFold proofs (pure verifier — no witness
+/// data).
 ///
 /// In the distributed SumFold protocol, all K parties share the same
 /// Fiat-Shamir transcript: challenges are derived from **aggregated**
@@ -452,8 +462,8 @@ pub fn prove_sumfold<F: PrimeField>(
 /// contributes its partial prover messages, partial sum_t, and partial v.
 ///
 /// This function:
-/// 1. **Combines** K partial proofs into a single SumCheck proof
-///    by summing prover messages element-wise per round
+/// 1. **Combines** K partial proofs into a single SumCheck proof by summing
+///    prover messages element-wise per round
 /// 2. **Verifies** the combined proof via `verify_sum_fold` (log₂(M) rounds)
 /// 3. **Checks** consistency: `c == v_total · eq(ρ, r_b)`
 ///
@@ -626,7 +636,8 @@ pub fn verify_network() -> Result<()> {
     info!("[Party {}] Received challenge: {}", party_id, r);
 
     // Step 3: Each party sends (r + party_id) back to master
-    // collected[i] is guaranteed to be party i's response (indexed by party ID in DeMultiNet)
+    // collected[i] is guaranteed to be party i's response (indexed by party ID in
+    // DeMultiNet)
     let response = r.wrapping_add(party_id as u64);
     let collected: Option<Vec<u64>> = Net::send_to_master(&response);
 
@@ -1260,8 +1271,9 @@ mod tests {
         }
     }
 
-    /// End-to-end test: build circuits → convert to SumCheck instances → prove_sumfold.
-    /// Validates that v1, v2, v3 produce identical results on real circuit polynomials.
+    /// End-to-end test: build circuits → convert to SumCheck instances →
+    /// prove_sumfold. Validates that v1, v2, v3 produce identical results
+    /// on real circuit polynomials.
     #[test]
     fn test_prove_sumfold_e2e() {
         use ark_bn254::{Bn254, Fr};
@@ -1291,7 +1303,8 @@ mod tests {
         let (folded, _proof) =
             prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
 
-        // The folded polynomial should have the same num_variables as the original instances
+        // The folded polynomial should have the same num_variables as the original
+        // instances
         assert_eq!(
             folded.poly.aux_info.num_variables,
             config.log_num_constraints - config.log_num_parties

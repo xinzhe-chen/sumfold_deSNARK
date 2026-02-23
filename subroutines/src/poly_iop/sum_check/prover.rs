@@ -186,10 +186,12 @@ impl<F: PrimeField> IOPProverState<F> {
     /// This method applies the final challenge to reduce each MLE to a scalar,
     /// returning a vector of these scalar evaluations.
     ///
-    /// This should be called immediately after the last `prove_round_and_update_state`,
-    /// i.e., when `self.round == self.poly.aux_info.num_variables`.
+    /// This should be called immediately after the last
+    /// `prove_round_and_update_state`, i.e., when `self.round ==
+    /// self.poly.aux_info.num_variables`.
     ///
-    /// Ported from HyperPianist: .agent/HyperPianist/subroutines/src/poly_iop/sum_check/prover.rs
+    /// Ported from HyperPianist:
+    /// .agent/HyperPianist/subroutines/src/poly_iop/sum_check/prover.rs
     pub fn get_final_mle_evaluations(&mut self, challenge: F) -> Result<Vec<F>, PolyIOPErrors> {
         if self.round != self.poly.aux_info.num_variables {
             return Err(PolyIOPErrors::InvalidProver(

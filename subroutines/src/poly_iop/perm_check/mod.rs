@@ -192,8 +192,8 @@ where
 //         pcs::{prelude::MultilinearKzgPCS, PolynomialCommitmentScheme},
 //         poly_iop::{errors::PolyIOPErrors, PolyIOP},
 //     };
-//     use arithmetic::{evaluate_opt, identity_permutation_mles, random_permutation_mles, VPAuxInfo};
-//     use ark_bls12_381::Bls12_381;
+//     use arithmetic::{evaluate_opt, identity_permutation_mles,
+// random_permutation_mles, VPAuxInfo};     use ark_bls12_381::Bls12_381;
 //     use ark_ec::pairing::Pairing;
 //     use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 //     use ark_std::test_rng;
@@ -224,11 +224,11 @@ where
 
 //         // prover
 //         let mut transcript =
-//             <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::init_transcript();
-//         transcript.append_message(b"testing", b"initializing transcript for testing")?;
-//         let (proof, prod_x, _frac_poly) =
-//             <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::prove(
-//                 pcs_param,
+//             <PolyIOP<E::ScalarField> as PermutationCheck<E,
+// PCS>>::init_transcript();         transcript.append_message(b"testing",
+// b"initializing transcript for testing")?;         let (proof, prod_x,
+// _frac_poly) =             <PolyIOP<E::ScalarField> as PermutationCheck<E,
+// PCS>>::prove(                 pcs_param,
 //                 fxs,
 //                 gxs,
 //                 perms,
@@ -237,11 +237,11 @@ where
 
 //         // verifier
 //         let mut transcript =
-//             <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::init_transcript();
-//         transcript.append_message(b"testing", b"initializing transcript for testing")?;
-//         let perm_check_sub_claim = <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::verify(
-//             &proof,
-//             &poly_info,
+//             <PolyIOP<E::ScalarField> as PermutationCheck<E,
+// PCS>>::init_transcript();         transcript.append_message(b"testing",
+// b"initializing transcript for testing")?;         let perm_check_sub_claim =
+// <PolyIOP<E::ScalarField> as PermutationCheck<E, PCS>>::verify(
+// &proof,             &poly_info,
 //             &mut transcript,
 //         )?;
 
@@ -251,8 +251,8 @@ where
 //             &perm_check_sub_claim.product_check_sub_claim.final_query.0,
 //         ) != perm_check_sub_claim.product_check_sub_claim.final_query.1
 //         {
-//             return Err(PolyIOPErrors::InvalidVerifier("wrong subclaim".to_string()));
-//         };
+//             return Err(PolyIOPErrors::InvalidVerifier("wrong
+// subclaim".to_string()));         };
 
 //         Ok(())
 //     }
@@ -260,24 +260,25 @@ where
 //     fn test_permutation_check(nv: usize) -> Result<(), PolyIOPErrors> {
 //         let mut rng = test_rng();
 
-//         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut rng, nv)?;
-//         let (pcs_param, _) = MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;
-//         let id_perms = identity_permutation_mles(nv, 2);
+//         let srs = MultilinearKzgPCS::<Bls12_381>::gen_srs_for_testing(&mut
+// rng, nv)?;         let (pcs_param, _) =
+// MultilinearKzgPCS::<Bls12_381>::trim(&srs, None, Some(nv))?;         let
+// id_perms = identity_permutation_mles(nv, 2);
 
 //         {
-//             // good path: (w1, w2) is a permutation of (w1, w2) itself under the identify
-//             // map
+//             // good path: (w1, w2) is a permutation of (w1, w2) itself under
+// the identify             // map
 //             let ws = vec![
 //                 Arc::new(DenseMultilinearExtension::rand(nv, &mut rng)),
 //                 Arc::new(DenseMultilinearExtension::rand(nv, &mut rng)),
 //             ];
 //             // perms is the identity map
-//             test_permutation_check_helper::<Bls12_381, Kzg>(&pcs_param, &ws, &ws, &id_perms)?;
-//         }
+//             test_permutation_check_helper::<Bls12_381, Kzg>(&pcs_param, &ws,
+// &ws, &id_perms)?;         }
 
 //         {
-//             // good path: f = (w1, w2) is a permutation of g = (w2, w1) itself under a map
-//             let mut fs = vec![
+//             // good path: f = (w1, w2) is a permutation of g = (w2, w1)
+// itself under a map             let mut fs = vec![
 //                 Arc::new(DenseMultilinearExtension::rand(nv, &mut rng)),
 //                 Arc::new(DenseMultilinearExtension::rand(nv, &mut rng)),
 //             ];
@@ -286,12 +287,12 @@ where
 //             // perms is the reverse identity map
 //             let mut perms = id_perms.clone();
 //             perms.reverse();
-//             test_permutation_check_helper::<Bls12_381, Kzg>(&pcs_param, &fs, &gs, &perms)?;
-//         }
+//             test_permutation_check_helper::<Bls12_381, Kzg>(&pcs_param, &fs,
+// &gs, &perms)?;         }
 
 //         {
-//             // bad path 1: w is a not permutation of w itself under a random map
-//             let ws = vec![
+//             // bad path 1: w is a not permutation of w itself under a random
+// map             let ws = vec![
 //                 Arc::new(DenseMultilinearExtension::rand(nv, &mut rng)),
 //                 Arc::new(DenseMultilinearExtension::rand(nv, &mut rng)),
 //             ];
@@ -299,8 +300,8 @@ where
 //             let perms = random_permutation_mles(nv, 2, &mut rng);
 
 //             assert!(
-//                 test_permutation_check_helper::<Bls12_381, Kzg>(&pcs_param, &ws, &ws, &perms)
-//                     .is_err()
+//                 test_permutation_check_helper::<Bls12_381, Kzg>(&pcs_param,
+// &ws, &ws, &perms)                     .is_err()
 //             );
 //         }
 

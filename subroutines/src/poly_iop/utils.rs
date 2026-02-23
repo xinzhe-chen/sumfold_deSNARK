@@ -6,8 +6,7 @@
 
 //! useful macros.
 
-use ark_ff::batch_inversion;
-use ark_ff::PrimeField;
+use ark_ff::{batch_inversion, PrimeField};
 
 /// Takes as input a struct, and converts them to a series of bytes. All traits
 /// that implement `CanonicalSerialize` can be automatically converted to bytes
@@ -28,8 +27,9 @@ where
     rayon::spawn(move || drop(data));
 }
 
-/// Converts an integer value to a bitvector (all values {0,1}) of field elements.
-/// Note: ordering has the MSB in the highest index. All of the following represent the integer 1:
+/// Converts an integer value to a bitvector (all values {0,1}) of field
+/// elements. Note: ordering has the MSB in the highest index. All of the
+/// following represent the integer 1:
 /// - [1]
 /// - [0, 0, 1]
 /// - [0, 0, 0, 0, 0, 0, 0, 1]
@@ -59,8 +59,8 @@ pub fn index_to_field_bitvector<F: PrimeField>(value: usize, bits: usize) -> Vec
     bitvector
 }
 
-/// Splits `item` into two chunks of `num_bits` size where each is less than 2^num_bits.
-/// Ex: split_bits(0b101_000, 3) -> (101, 000)
+/// Splits `item` into two chunks of `num_bits` size where each is less than
+/// 2^num_bits. Ex: split_bits(0b101_000, 3) -> (101, 000)
 pub fn split_bits(item: usize, num_bits: usize) -> (usize, usize) {
     let max_value = (1 << num_bits) - 1; // Calculate the maximum value that can be represented with num_bits
 

@@ -3,8 +3,7 @@
 use ark_ff::PrimeField;
 use rayon::prelude::*;
 
-use crate::math::Math;
-use crate::util::unsafe_allocate_zero_vec;
+use crate::{math::Math, util::unsafe_allocate_zero_vec};
 
 pub struct EqPolynomial<F> {
     r: Vec<F>,
@@ -34,7 +33,8 @@ impl<F: PrimeField> EqPolynomial<F> {
         }
     }
 
-    /// Computes evals serially. Uses less memory (and fewer allocations) than `evals_parallel`.
+    /// Computes evals serially. Uses less memory (and fewer allocations) than
+    /// `evals_parallel`.
     fn evals_serial(r: &[F], ell: usize) -> Vec<F> {
         let mut evals: Vec<F> = vec![F::one(); ell.pow2()];
         let mut size = 1;
@@ -51,8 +51,9 @@ impl<F: PrimeField> EqPolynomial<F> {
         evals
     }
 
-    /// Computes evals in parallel. Uses more memory and allocations than `evals_serial`, but
-    /// evaluates biggest layers of the dynamic programming tree in parallel.
+    /// Computes evals in parallel. Uses more memory and allocations than
+    /// `evals_serial`, but evaluates biggest layers of the dynamic
+    /// programming tree in parallel.
     // #[tracing::instrument(skip_all, "EqPolynomial::evals_parallel")]
     pub fn evals_parallel(r: &[F], ell: usize) -> Vec<F> {
         let final_size = (2usize).pow(ell as u32);
@@ -88,7 +89,8 @@ impl<F: PrimeField> EqPolynomial<F> {
         }
     }
 
-    /// Computes evals serially. Uses less memory (and fewer allocations) than `evals_parallel`.
+    /// Computes evals serially. Uses less memory (and fewer allocations) than
+    /// `evals_parallel`.
     fn evals_serial_coeff(r: &[F], coeff: &F, ell: usize) -> Vec<F> {
         let mut evals: Vec<F> = vec![F::one(); ell.pow2()];
         evals[0] = *coeff;
@@ -106,8 +108,9 @@ impl<F: PrimeField> EqPolynomial<F> {
         evals
     }
 
-    /// Computes evals in parallel. Uses more memory and allocations than `evals_serial`, but
-    /// evaluates biggest layers of the dynamic programming tree in parallel.
+    /// Computes evals in parallel. Uses more memory and allocations than
+    /// `evals_serial`, but evaluates biggest layers of the dynamic
+    /// programming tree in parallel.
     // #[tracing::instrument(skip_all, "EqPolynomial::evals_parallel")]
     pub fn evals_parallel_coeff(r: &[F], coeff: &F, ell: usize) -> Vec<F> {
         let final_size = (2usize).pow(ell as u32);
@@ -133,7 +136,8 @@ impl<F: PrimeField> EqPolynomial<F> {
         evals
     }
 
-    // #[tracing::instrument(skip_all, name = "EqPolynomial::compute_factored_evals")]
+    // #[tracing::instrument(skip_all, name =
+    // "EqPolynomial::compute_factored_evals")]
     pub fn compute_factored_evals(&self, L_size: usize) -> (Vec<F>, Vec<F>) {
         let ell = self.r.len();
         let left_num_vars = L_size.log_2();

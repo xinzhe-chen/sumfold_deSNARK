@@ -3,8 +3,9 @@
 //! Diagnoses why distributed SumFold speedup is low (1.71x with K=4 parties)
 //! by measuring:
 //!   A) Single-node sum_fold_v3 (M=16, num_vars=20)  — the baseline
-//!   B) Same sum_fold_v3       (M=16, num_vars=18)  — per-party compute in current d_sumfold
-//!   C) Partitioned sum_fold_v3(M=4,  num_vars=18)  — if each party only folded M/K instances
+//!   B) Same sum_fold_v3       (M=16, num_vars=18)  — per-party compute in
+//! current d_sumfold   C) Partitioned sum_fold_v3(M=4,  num_vars=18)  — if each
+//! party only folded M/K instances
 //!
 //! Also profiles the costly sub-stages: split, merge, compose, fix_variables.
 //!
@@ -20,9 +21,7 @@ use ark_bls12_381::Fr;
 use ark_ff::{PrimeField, Zero};
 use ark_poly::DenseMultilinearExtension;
 use ark_std::{log2, test_rng};
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use arithmetic::{
     build_eq_x_r, eq_poly::EqPolynomial, fix_variables, VPAuxInfo, VirtualPolynomial,
@@ -40,7 +39,8 @@ use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterato
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Generate m random VirtualPolynomials with structure similar to HyperPlonk vanilla gate.
+/// Generate m random VirtualPolynomials with structure similar to HyperPlonk
+/// vanilla gate.
 fn gen_polys(nv: usize, m: usize) -> (Vec<VirtualPolynomial<Fr>>, Vec<Fr>) {
     let mut rng = test_rng();
     let num_multiplicands = 3;

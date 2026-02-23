@@ -15,16 +15,13 @@ use crate::{
     },
 };
 
-use arithmetic::eq_poly::EqPolynomial;
 use arithmetic::{
-    build_eq_x_r, build_eq_x_r_vec, fix_variables, fix_variables_in_place,
+    build_eq_x_r, build_eq_x_r_vec, eq_poly::EqPolynomial, fix_variables, fix_variables_in_place,
     unipoly::interpolate_uni_poly, VPAuxInfo, VirtualPolynomial,
 };
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-use ark_std::cfg_into_iter;
-use ark_std::log2;
-use ark_std::time::Instant;
+use ark_std::{cfg_into_iter, log2, time::Instant};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
     IntoParallelRefMutIterator, ParallelIterator,
@@ -100,8 +97,9 @@ pub trait SumCheck<F: PrimeField> {
         PolyIOPErrors,
     >;
 
-    /// Optimized version of sum_fold with MLE transform and reduced allocations.
-    /// Produces identical results to sum_fold but with better performance.
+    /// Optimized version of sum_fold with MLE transform and reduced
+    /// allocations. Produces identical results to sum_fold but with better
+    /// performance.
     fn sum_fold_v2(
         polys: Vec<VirtualPolynomial<F>>,
         sums: Vec<F>,
@@ -117,10 +115,12 @@ pub trait SumCheck<F: PrimeField> {
         PolyIOPErrors,
     >;
 
-    /// Split-and-merge version of sum_fold using VirtualPolynomial::split_by_last_variables.
+    /// Split-and-merge version of sum_fold using
+    /// VirtualPolynomial::split_by_last_variables.
     ///
-    /// Strategy: m VPs → split each by last `length` vars → m² sub-VPs → merge by split index → m merged VPs
-    /// Uses sequential execution and eq-weighted sums.
+    /// Strategy: m VPs → split each by last `length` vars → m² sub-VPs → merge
+    /// by split index → m merged VPs Uses sequential execution and
+    /// eq-weighted sums.
     fn sum_fold_v3(
         polys: Vec<VirtualPolynomial<F>>,
         sums: Vec<F>,
@@ -138,16 +138,18 @@ pub trait SumCheck<F: PrimeField> {
 
     /// Distributed SumCheck prove using a two-phase protocol.
     ///
-    /// Phase 1: All parties run `num_vars` rounds of local sumcheck in parallel.
-    ///   After each round, worker messages are aggregated by the master.
-    ///   At the end, each party's MLEs are reduced to scalars via `get_final_mle_evaluations`.
+    /// Phase 1: All parties run `num_vars` rounds of local sumcheck in
+    /// parallel.   After each round, worker messages are aggregated by the
+    /// master.   At the end, each party's MLEs are reduced to scalars via
+    /// `get_final_mle_evaluations`.
     ///
-    /// Phase 2 (master only): The master assembles tiny MLEs (one scalar per party)
-    ///   and runs `log₂(K)` additional sumcheck rounds locally.
+    /// Phase 2 (master only): The master assembles tiny MLEs (one scalar per
+    /// party)   and runs `log₂(K)` additional sumcheck rounds locally.
     ///
     /// Workers return `Ok(None)`, the master returns `Ok(Some(proof))`.
     ///
-    /// Ported from HyperPianist: .agent/HyperPianist/subroutines/src/poly_iop/sum_check/mod.rs
+    /// Ported from HyperPianist:
+    /// .agent/HyperPianist/subroutines/src/poly_iop/sum_check/mod.rs
     #[cfg(feature = "distributed")]
     fn d_prove<Net: DeSerNet>(
         poly: &Self::VirtualPolynomial,
@@ -306,8 +308,8 @@ pub fn verify_sum_fold_with_transcript<F: PrimeField>(
 /// Transcript protocol (must match the v2 prover):
 ///   1. `append(b"aux info", q_aux_info)`
 ///   2. `squeeze(b"sumfold rho")` → ρ
-///   3. For each of the `combined_num_vars` rounds:
-///      `append(b"prover msg", msg)` + `squeeze(b"Internal round")`
+///   3. For each of the `combined_num_vars` rounds: `append(b"prover msg",
+///      msg)` + `squeeze(b"Internal round")`
 ///
 /// Returns `(subclaim, ρ)` where `subclaim.point = r_b ∥ r_x`.
 /// The caller verifies:
@@ -723,7 +725,8 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
     /// Optimized sum_fold with MLE transform and reduced allocations.
     /// Key optimizations:
     /// 1. Hoist barycentric weight precomputation outside round loop
-    /// 2. Use MLE transform in final stage instead of explicit eq_rb_vec accumulation
+    /// 2. Use MLE transform in final stage instead of explicit eq_rb_vec
+    ///    accumulation
     /// 3. Use in-place fix_variables where possible
     fn sum_fold_v2(
         polys: Vec<VirtualPolynomial<F>>,
@@ -962,8 +965,8 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         let rb = proof.point.clone();
 
         // Stage 6: compute the folded instance-witness pair using MLE transform
-        // OPTIMIZATION: Instead of explicit O(t * m * 2^num_vars) accumulation with eq_rb_vec,
-        // leverage the prover loop's intermediate state.
+        // OPTIMIZATION: Instead of explicit O(t * m * 2^num_vars) accumulation with
+        // eq_rb_vec, leverage the prover loop's intermediate state.
         // After all rounds, flattened_ml_extensions is fixed at rb[0..length-1].
         // Apply one more fix_variables for the final challenge to get the folded MLEs.
         let v = c * eq_poly.evaluate(&rb).inverse().unwrap();
@@ -1000,9 +1003,11 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         Ok((proof, sum_t, q_aux_info, folded_poly, v))
     }
 
-    /// Split-and-merge version of sum_fold using VirtualPolynomial::split_by_last_variables.
+    /// Split-and-merge version of sum_fold using
+    /// VirtualPolynomial::split_by_last_variables.
     ///
-    /// Strategy: m VPs → split each by last `length` vars → m² sub-VPs → merge by split index → m merged VPs
+    /// Strategy: m VPs → split each by last `length` vars → m² sub-VPs → merge
+    /// by split index → m merged VPs
     ///
     /// # Split-and-Merge Example (m=4, t=2 MLEs each)
     ///
@@ -1286,20 +1291,22 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
     /// Distributed SumCheck prove: two-phase protocol.
     ///
-    /// Phase 1 (all parties): Each party runs `num_vars` rounds of local sumcheck
-    /// on its own polynomial shard. After each round, prover messages are sent to
-    /// the master who aggregates them, then broadcasts the challenge back.
+    /// Phase 1 (all parties): Each party runs `num_vars` rounds of local
+    /// sumcheck on its own polynomial shard. After each round, prover
+    /// messages are sent to the master who aggregates them, then broadcasts
+    /// the challenge back.
     ///
     /// Phase 2 (master only): After Phase 1, each party evaluates its MLEs to
-    /// scalars. The master assembles these into tiny MLEs (one evaluation per party)
-    /// and runs `log₂(K)` additional local sumcheck rounds.
+    /// scalars. The master assembles these into tiny MLEs (one evaluation per
+    /// party) and runs `log₂(K)` additional local sumcheck rounds.
     ///
     /// Workers return `Ok(None)`, the master returns `Ok(Some(proof))`.
     ///
-    /// The total proof has (num_vars + log₂(K)) rounds, proving over the combined
-    /// (num_vars + log₂(K))-variable polynomial.
+    /// The total proof has (num_vars + log₂(K)) rounds, proving over the
+    /// combined (num_vars + log₂(K))-variable polynomial.
     ///
-    /// Ported from HyperPianist: .agent/HyperPianist/subroutines/src/poly_iop/sum_check/mod.rs
+    /// Ported from HyperPianist:
+    /// .agent/HyperPianist/subroutines/src/poly_iop/sum_check/mod.rs
     #[cfg(feature = "distributed")]
     #[instrument(level = "debug", skip_all, name = "d_prove")]
     fn d_prove<Net: DeSerNet>(
@@ -1440,16 +1447,16 @@ pub fn stage2_compute_sum_t<F: PrimeField>(sums: &[F], eq_xr_vec: &[F]) -> F {
 
 /// Stage 3: Merge split MLEs across VPs for interleaved structure
 ///
-/// For each MLE index j, produce a merged MLE with (length + num_vars) variables.
-/// The interleaving follows sum_fold_v2's layout:
+/// For each MLE index j, produce a merged MLE with (length + num_vars)
+/// variables. The interleaving follows sum_fold_v2's layout:
 ///   merged_evals[k * m + i] = original_polys[i].mle[j].evals[k]
 ///
 /// After splitting by last `length` vars:
-///   all_splits[i][s].mle[j].evals[x'] = original_polys[i].mle[j].evals[s * chunk_size + x']
-///   where chunk_size = 2^(num_vars - length)
+///   all_splits[i][s].mle[j].evals[x'] = original_polys[i].mle[j].evals[s *
+/// chunk_size + x']   where chunk_size = 2^(num_vars - length)
 ///
-/// So we iterate: for s in 0..num_splits, for x' in 0..chunk_size, for i in 0..m
-/// This produces k = s * chunk_size + x' in correct order.
+/// So we iterate: for s in 0..num_splits, for x' in 0..chunk_size, for i in
+/// 0..m This produces k = s * chunk_size + x' in correct order.
 pub fn stage3_merge_split_mles<F: PrimeField>(
     all_splits: &[Vec<VirtualPolynomial<F>>],
     m: usize,
@@ -1520,9 +1527,7 @@ mod test {
     use ark_ff::{One, UniformRand, Zero};
     use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
     use ark_std::test_rng;
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::time::Instant;
+    use std::{collections::HashMap, sync::Arc, time::Instant};
 
     fn test_sumcheck(
         nv: usize,
@@ -1937,8 +1942,9 @@ mod test {
         Ok(())
     }
 
-    /// Benchmark sum_fold vs sum_fold_v2 with multiple iterations for accurate timing.
-    /// Run with: cargo test -p subroutines --lib sum_check::test::bench_sum_fold --release -- --nocapture --ignored
+    /// Benchmark sum_fold vs sum_fold_v2 with multiple iterations for accurate
+    /// timing. Run with: cargo test -p subroutines --lib
+    /// sum_check::test::bench_sum_fold --release -- --nocapture --ignored
     #[test]
     #[ignore] // Run manually with --ignored flag
     fn bench_sum_fold_comparison() -> Result<(), PolyIOPErrors> {

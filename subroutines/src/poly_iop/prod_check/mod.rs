@@ -219,23 +219,25 @@ where
         // let start = start_timer!(|| "prod_check verify");
 
         // // update transcript and generate challenge
-        // transcript.append_serializable_element(b"frac(x)", &proof.frac_comm)?;
-        // transcript.append_serializable_element(b"prod(x)", &proof.prod_x_comm)?;
-        // let alpha = transcript.get_and_append_challenge(b"alpha")?;
+        // transcript.append_serializable_element(b"frac(x)",
+        // &proof.frac_comm)?; transcript.append_serializable_element(b"
+        // prod(x)", &proof.prod_x_comm)?; let alpha =
+        // transcript.get_and_append_challenge(b"alpha")?;
 
         // // invoke the zero check on the iop_proof
         // // the virtual poly info for Q(x)
-        // let zero_check_sub_claim = <Self as ZeroCheck<E::ScalarField>>::verify(
-        //     &proof.zero_check_proof,
-        //     aux_info,
+        // let zero_check_sub_claim = <Self as
+        // ZeroCheck<E::ScalarField>>::verify(     &proof.
+        // zero_check_proof,     aux_info,
         //     transcript,
         // )?;
 
         // // the final query is on prod_x
-        // let mut final_query = vec![E::ScalarField::one(); aux_info.num_variables];
-        // // the point has to be reversed because Arkworks uses big-endian.
-        // final_query[0] = E::ScalarField::zero();
-        // let final_eval = E::ScalarField::one();
+        // let mut final_query = vec![E::ScalarField::one();
+        // aux_info.num_variables]; // the point has to be reversed
+        // because Arkworks uses big-endian. final_query[0] =
+        // E::ScalarField::zero(); let final_eval =
+        // E::ScalarField::one();
 
         // end_timer!(start);
 
