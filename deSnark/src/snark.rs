@@ -920,12 +920,10 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         // ───────────────────────────────────────────────────────────
         // PCS batch_verify on all individual commitments
         //
-        // Must use DeMkzg::batch_verify (not PCS::batch_verify) because
-        // the batch proof was produced by d_multi_open_internal, which
-        // does NOT append eval_points/evals to the transcript before
-        // generating challenge t. The non-distributed batch_verify
-        // (MultilinearKzgPCS) does append them, causing a transcript
-        // mismatch and different Fiat-Shamir challenges.
+        // d_multi_open_internal appends eval_points/evals to the
+        // transcript before generating challenge t, matching the
+        // standard batch_verify_internal. Both PCS::batch_verify
+        // and DeMkzg::batch_verify produce identical results.
         // ───────────────────────────────────────────────────────────
         let all_commits: Vec<Commitment<E>> = sel_commits
             .iter()
@@ -1210,7 +1208,7 @@ pub fn dist_prove<E: Pairing>(
         "✅ PCS d_multi_open completed in {:?} ({} polys: {} sel + {} wit)",
         open_timer.elapsed(),
         total_polys,
-        num_selectors,
+        num_instances * num_selectors,
         num_instances * num_witnesses
     );
 
