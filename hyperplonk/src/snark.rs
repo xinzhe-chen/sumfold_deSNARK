@@ -169,7 +169,7 @@ where
             f_commitments.push(f_hat_comms);
             duration_f_hat += f_hat_start.elapsed();
 
-            let (perm_check_proof, prod_poly, frac_poly, perm_f_hat) =
+            let (_perm_check_proof, prod_poly, frac_poly, perm_f_hat) =
                 <Self as PermutationCheck<E, PCS>>::prove(
                     &pk.pcs_param,
                     &witness_polys,
@@ -351,8 +351,8 @@ where
         let mut commitment_idx = 0;
 
         for (poly, comms) in f_hats.iter().zip(commitments.iter().skip(commitment_idx)) {
-            for (mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
-                // pcs_acc.insert_poly_and_points(mle, comm, &f_eval_point);
+            for (_mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
+                // pcs_acc.insert_poly_and_points(_mle, comm, &f_eval_point);
                 all_commitments.push(comm.clone());
                 all_points.push(f_eval_point.clone());
             }
@@ -363,8 +363,8 @@ where
             .iter()
             .zip(commitments.iter().skip(commitment_idx))
         {
-            for (mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
-                // pcs_acc.insert_poly_and_points(mle, comm, &perm_eval_point);
+            for (_mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
+                // pcs_acc.insert_poly_and_points(_mle, comm, &perm_eval_point);
                 all_commitments.push(comm.clone());
                 all_points.push(perm_eval_point.clone());
             }

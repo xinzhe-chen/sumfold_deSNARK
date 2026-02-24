@@ -56,3 +56,6 @@ print-trace = [
     "arithmetic/print-trace",
     "subroutines/print-trace",
 ]
+
+[lints.rust]
+non_snake_case = "allow"

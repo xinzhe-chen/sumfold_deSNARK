@@ -39,5 +39,11 @@ default = []
 std = [ "ark-std/std", "ark-ff/std", "ark-serialize/std" ]
 parallel = [ "std", "rayon", "ark-std/parallel" ]
 
+[lints.rust]
+unused_imports = "allow"
+unused_attributes = "allow"
+unused_variables = "allow"
+dead_code = "allow"
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./doc/katex-header.html"]

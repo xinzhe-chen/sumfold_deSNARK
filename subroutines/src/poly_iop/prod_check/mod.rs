@@ -17,7 +17,7 @@ use crate::{
 };
 use arithmetic::{VPAuxInfo, VirtualPolynomial};
 use ark_ec::pairing::Pairing;
-use ark_ff::{One, PrimeField, Zero};
+use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 
 use std::sync::Arc;
@@ -211,9 +211,9 @@ where
     }
 
     fn verify(
-        proof: &Self::ProductCheckProof,
-        aux_info: &VPAuxInfo<E::ScalarField>,
-        transcript: &mut Self::Transcript,
+        _proof: &Self::ProductCheckProof,
+        _aux_info: &VPAuxInfo<E::ScalarField>,
+        _transcript: &mut Self::Transcript,
     ) -> Result<Self::ProductCheckSubClaim, PolyIOPErrors> {
         unimplemented!();
         // let start = start_timer!(|| "prod_check verify");

@@ -29,8 +29,7 @@ use transcript::IOPTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
 /// Result type for d_sumfold operations.

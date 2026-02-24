@@ -6,6 +6,7 @@
     rust_2018_idioms,
     rust_2021_compatibility
 )]
+#![allow(unexpected_cfgs)]
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 mod error;

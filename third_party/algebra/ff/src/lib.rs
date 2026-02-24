@@ -6,7 +6,13 @@
     rust_2018_idioms,
     rust_2021_compatibility
 )]
-#![allow(clippy::op_ref, clippy::suspicious_op_assign_impl)]
+#![allow(
+    clippy::op_ref,
+    clippy::suspicious_op_assign_impl,
+    ambiguous_glob_reexports,
+    unused_attributes,
+    dead_code
+)]
 #![deny(unsafe_code)]
 #![doc = include_str!("../README.md")]
 

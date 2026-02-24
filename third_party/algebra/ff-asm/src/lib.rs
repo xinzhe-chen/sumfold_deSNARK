@@ -5,6 +5,7 @@
     rust_2018_idioms,
     rust_2021_compatibility
 )]
+#![allow(dead_code)]
 #![forbid(unsafe_code)]
 #![recursion_limit = "128"]
 

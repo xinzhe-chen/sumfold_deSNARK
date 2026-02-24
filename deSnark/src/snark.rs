@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use arithmetic::{build_eq_x_r_vec, eq_poly::EqPolynomial, VPAuxInfo, VirtualPolynomial};
-use ark_ec::{pairing::Pairing, scalar_mul::variable_base::VariableBaseMSM};
+use ark_ec::pairing::Pairing;
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

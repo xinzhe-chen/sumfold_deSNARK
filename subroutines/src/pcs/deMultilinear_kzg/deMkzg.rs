@@ -13,9 +13,9 @@ use crate::pcs::{
         MultilinearKzgPCS, MultilinearKzgProof,
     },
     prelude::Commitment,
-    PCSError, PolynomialCommitmentScheme, StructuredReferenceString,
+    PCSError, PolynomialCommitmentScheme,
 };
-use arithmetic::{evaluate_opt, math::Math, unsafe_allocate_zero_vec, DenseMultilinearExtension};
+use arithmetic::{math::Math, unsafe_allocate_zero_vec, DenseMultilinearExtension};
 use ark_ec::{
     pairing::Pairing,
     scalar_mul::{fixed_base::FixedBase, variable_base::VariableBaseMSM},
@@ -25,7 +25,7 @@ use ark_ff::PrimeField;
 use ark_poly::MultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
-    end_timer, format, marker::PhantomData, rand::Rng, start_timer, string::ToString, sync::Arc,
+    end_timer, format, marker::PhantomData, rand::Rng, start_timer, sync::Arc,
     vec, vec::Vec, One, Zero,
 };
 use std::ops::Mul;
@@ -36,8 +36,7 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 #[cfg(feature = "parallel")]
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
 use crate::pcs::multilinear_kzg::batching::BatchProof;
@@ -60,6 +59,7 @@ pub struct SentToMasterData<E: Pairing> {
 }
 
 impl<E: Pairing> SentToMasterData<E> {
+    #[allow(dead_code)]
     pub(super) fn new() -> Self {
         Self {
             f_vec: Vec::new(),

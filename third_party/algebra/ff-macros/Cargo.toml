@@ -20,5 +20,8 @@ syn = { version = "1.0.0", features = ["full", "parsing", "extra-traits"]}
 num-bigint = { version = "0.4", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 
+[lints.rust]
+unused_variables = "allow"
+
 [lib]
 proc-macro = true

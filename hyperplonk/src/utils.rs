@@ -265,7 +265,7 @@ pub fn eval_f<F: PrimeField>(
 //           + x1 * prod(x2, ..., xn, 1)
 // and gi(x) = (wi(x) + beta * perms_i(x) + gamma)
 // and fi(x) = (wi(x) + beta * s_id_i(x) + gamma)
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn eval_perm_gate<F: PrimeField>(
     prod_evals: &[F],
     frac_evals: &[F],

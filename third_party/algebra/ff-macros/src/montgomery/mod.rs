@@ -100,7 +100,7 @@ pub fn mont_config_helper(
         quote::quote! {}
     };
 
-    let scope_name = format_ident!("{}___", config_name.to_string().to_lowercase());
+    let _scope_name = format_ident!("{}___", config_name.to_string().to_lowercase());
     quote::quote! {
             use ark_ff::{fields::Fp, BigInt, BigInteger, biginteger::arithmetic as fa, fields::*};
             type B = BigInt<#limbs>;

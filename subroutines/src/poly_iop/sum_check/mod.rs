@@ -30,7 +30,7 @@ use std::{collections::HashMap, fmt::Debug, marker::PhantomData, sync::Arc};
 use transcript::IOPTranscript;
 
 #[cfg(feature = "distributed")]
-use deNetwork::{channel::DeSerNet, DeNet};
+use deNetwork::channel::DeSerNet;
 use tracing::instrument;
 
 #[cfg(feature = "distributed")]
@@ -509,7 +509,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         }
 
         // compose_poly h
-        let mut compose_poly = VirtualPolynomial {
+        let compose_poly = VirtualPolynomial {
             aux_info: VPAuxInfo {
                 max_degree: polys[0].aux_info.max_degree + 1,
                 num_variables: new_num_vars,

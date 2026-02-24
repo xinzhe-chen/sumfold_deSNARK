@@ -223,8 +223,8 @@ where
     // (workers will compute their bucket-local contributions)
     let mut worker_data: Vec<DistributedVPData<F>> = Vec::with_capacity(m);
 
-    for i in 0..m {
-        // Each worker handles bucket i in the eq weighting
+    for _i in 0..m {
+        // Each worker handles bucket _i in the eq weighting
         // For now, all workers get full MLE data (can be optimized later)
         let mle_evaluations: Vec<Vec<F>> = compose_poly
             .flattened_ml_extensions

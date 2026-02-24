@@ -48,5 +48,10 @@ parallel = [ "std", "rayon", "ark-std/parallel" ]
 asm = []
 
 
+[lints.rust]
+ambiguous_glob_reexports = "allow"
+unused_attributes = "allow"
+dead_code = "allow"
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "./doc/katex-header.html"]

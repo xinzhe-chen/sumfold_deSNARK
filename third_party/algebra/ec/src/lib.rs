@@ -10,7 +10,11 @@
 #![allow(
     clippy::op_ref,
     clippy::suspicious_op_assign_impl,
-    clippy::many_single_char_names
+    clippy::many_single_char_names,
+    unused_imports,
+    unused_attributes,
+    unused_variables,
+    dead_code
 )]
 #![doc = include_str!("../README.md")]
 

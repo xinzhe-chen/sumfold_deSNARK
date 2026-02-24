@@ -10,15 +10,14 @@ use crate::{
         PolynomialCommitmentScheme,
     },
     poly_iop::{prelude::SumCheck, PolyIOP},
-    IOPProof,
 };
 use arithmetic::{
     bit_decompose, build_eq_x_r_vec, build_eq_x_r_with_coeff, math::Math,
     DenseMultilinearExtension, VPAuxInfo, VirtualPolynomial,
 };
-use ark_ec::{pairing::Pairing, scalar_mul::variable_base::VariableBaseMSM, CurveGroup};
+use ark_ec::{pairing::Pairing, scalar_mul::variable_base::VariableBaseMSM};
 use ark_std::{end_timer, log2, start_timer, One, Zero};
-use std::{collections::BTreeMap, iter, marker::PhantomData, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, marker::PhantomData, ops::Deref, sync::Arc};
 use transcript::IOPTranscript;
 
 #[cfg(feature = "distributed")]
@@ -26,8 +25,7 @@ use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 #[cfg(feature = "parallel")]
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
 use crate::pcs::multilinear_kzg::batching::BatchProof;

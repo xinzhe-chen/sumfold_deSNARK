@@ -17,5 +17,8 @@ rust-version = "1.60"
 quote = "1.0.0"
 syn = { version = "1.0.0", features = ["full", "parsing", "extra-traits"]}
 
+[lints.rust]
+dead_code = "allow"
+
 [lib]
 proc-macro = true
