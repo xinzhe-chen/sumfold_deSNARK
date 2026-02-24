@@ -23,7 +23,7 @@ use subroutines::{
     pcs::PolynomialCommitmentScheme,
     poly_iop::{
         prelude::{PolyIOP, SumCheck},
-        sum_check::verify_sum_fold,
+        sum_check::{verify_sum_fold, verify_sum_fold_with_transcript},
     },
     BatchProof, Commitment, DeMkzg, IOPProof, MultilinearKzgPCS,
 };
@@ -758,7 +758,8 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
 /// 3. make_circuit(config, srs) -> (PK, VK, Vec<MockCircuit>)
 /// 4. circuits_to_sumcheck(pk, circuits) -> Vec<SumCheckInstance>
 /// 5. dist_prove_sumcheck(polys, sums) -> Proof  (inner layer)
-/// 6. verify_proof_eval(proof, pk, circuits, aux) — master-side eval check
+/// 6. verify_proof_eval(proof, pk, circuits, aux) — full verification
+///    (SumFold verify + HyperPianist verify + gate check + PCS batch_verify)
 ///
 /// # Arguments
 /// * `config` - Protocol configuration
@@ -769,16 +770,19 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
 
 /// Verify the proof against circuit data (master-side eval check).
 ///
-/// Replays the full prover transcript (SumFold → HyperPianist) so that
-/// the verifier derives the same Fiat-Shamir challenges as the prover,
-/// then checks the final subclaim against the circuit polynomials.
+/// Full verification flow:
+/// 1. **Verify SumFold** via `verify_sum_fold_with_transcript` — checks all
+///    SumFold round messages and derives `r_b` (folding point) + `rho` from
+///    the transcript. Also checks consistency: `c == v * eq(ρ, r_b)`.
+/// 2. **Verify HyperPianist SumCheck** — continues on the same transcript,
+///    returns `hp_subclaim` with transcript-derived opening point.
+/// 3. **Gate equation check** — fold evaluations with `eq(r_b, ·)` weights,
+///    evaluate gate function, compare against `hp_subclaim.expected_evaluation`.
+/// 4. **PCS batch_verify** — verify commitments at the transcript-derived
+///    opening point (`hp_subclaim.point`).
 ///
-/// When the proof contains PCS data (selector_commits, witness_commits,
-/// batch_openings), verification proceeds as:
-/// 1. Replay SumFold transcript, then verify HyperPianist SumCheck
-/// 2. Extract evaluations from the batch opening proof
-/// 3. Fold evaluations with eq(r_b, ·) weights and check gate equation
-/// 4. PCS batch_verify on commitments + evaluations + opening proof
+/// All points used (r_b, rho, pcs_point) are **derived from the transcript**,
+/// never taken from `proof.proof.point` (which is prover-supplied and untrusted).
 ///
 /// Without PCS data, falls back to local MLE evaluation (legacy path).
 fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
@@ -792,44 +796,63 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
     let total_hp_rounds = proof.proof.proofs.len() - proof.num_sumfold_rounds;
 
     // ═══════════════════════════════════════════════════════════════
-    // Step 1: Replay full transcript and verify HyperPianist SumCheck
+    // Step 1: Verify SumFold proof (not just replay!)
     //
-    // The prover's transcript was threaded: SumFold → d_prove.
-    // We must replay SumFold operations first so the transcript state
-    // matches, then verify the HyperPianist portion.
+    // verify_sum_fold_with_transcript performs actual SumCheck round
+    // checks (P(0)+P(1)==expected) on the SumFold portion and returns
+    // transcript-derived challenges as the subclaim point.
     // ═══════════════════════════════════════════════════════════════
     let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
-    // Replay SumFold transcript operations
-    transcript
-        .append_serializable_element(b"aux info", &proof.q_aux_info)
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript replay: {e}")))?;
-    let _rho: Vec<E::ScalarField> = transcript
-        .get_and_append_challenge_vectors(b"sumfold rho", proof.num_sumfold_rounds)
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript replay: {e}")))?;
-    for i in 0..proof.num_sumfold_rounds {
-        transcript
-            .append_serializable_element(b"prover msg", &proof.proof.proofs[i])
-            .map_err(|e| {
-                DeSnarkError::HyperPlonkError(format!("transcript replay round {i}: {e}"))
-            })?;
-        transcript
-            .get_and_append_challenge(b"Internal round")
-            .map_err(|e| {
-                DeSnarkError::HyperPlonkError(format!("transcript replay challenge {i}: {e}"))
-            })?;
-    }
+    let sf_proof = IOPProof {
+        point: Vec::new(), // unused by verify_sum_fold_with_transcript
+        proofs: proof.proof.proofs[..proof.num_sumfold_rounds].to_vec(),
+    };
 
-    // d_prove uses extended aux_info (num_variables includes party variables)
+    let (sf_subclaim, rho) = verify_sum_fold_with_transcript(
+        proof.sum_t,
+        &sf_proof,
+        &proof.q_aux_info,
+        &mut transcript,
+    )
+    .map_err(|e| {
+        DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
+    })?;
+
+    // r_b is the transcript-derived folding point (NOT from proof.proof.point)
+    let r_b = &sf_subclaim.point;
+
+    // Consistency check: c == v * eq(ρ, r_b)
+    let eq_poly = EqPolynomial::new(rho);
+    let eq_val = eq_poly.evaluate(r_b);
+    let expected_c = proof.v * eq_val;
+    if sf_subclaim.expected_evaluation != expected_c {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "SumFold consistency check failed: c={:?} != v*eq(ρ,r_b)={:?}",
+            sf_subclaim.expected_evaluation, expected_c
+        )));
+    }
+    info!(
+        "✅ SumFold verification passed: v={:?}, {} rounds",
+        proof.v, proof.num_sumfold_rounds
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step 2: Verify HyperPianist SumCheck (continues on same transcript)
+    //
+    // d_prove uses extended aux_info (num_variables includes party variables).
+    // SumCheck::verify appends aux_info, then verifies each round message,
+    // returning subclaim with transcript-derived point.
+    // ═══════════════════════════════════════════════════════════════
     let mut hp_aux_info = instances_aux.clone();
     hp_aux_info.num_variables = total_hp_rounds;
 
     let hp_proof = IOPProof {
-        point: proof.proof.point[proof.num_sumfold_rounds..].to_vec(),
+        point: Vec::new(), // unused by SumCheck::verify (it derives point from transcript)
         proofs: proof.proof.proofs[proof.num_sumfold_rounds..].to_vec(),
     };
 
-    let subclaim = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::verify(
+    let hp_subclaim = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::verify(
         proof.v,
         &hp_proof,
         &hp_aux_info,
@@ -841,10 +864,17 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         ))
     })?;
 
+    // hp_subclaim.point is the transcript-derived opening point
+    // (r_phase1 ∥ r_party), used for PCS verification below.
+    info!(
+        "✅ HyperPianist SumCheck verified: {} rounds, point dim = {}",
+        total_hp_rounds,
+        hp_subclaim.point.len()
+    );
+
     // ═══════════════════════════════════════════════════════════════
-    // Step 2 + 3: Gate equation check + PCS verification
+    // Step 3 + 4: Gate equation check + PCS verification
     // ═══════════════════════════════════════════════════════════════
-    let r_b = &proof.proof.point[..proof.num_sumfold_rounds];
     let gate_func = &pk.params.gate_func;
     let num_selectors = circuits[0].index.selectors.len();
     let num_witnesses = circuits[0].witnesses.len();
@@ -906,10 +936,10 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         let gate_eval = eval_f(gate_func, &folded_sel_evals, &folded_wit_evals)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("eval_f: {e}")))?;
 
-        if subclaim.expected_evaluation != gate_eval {
+        if hp_subclaim.expected_evaluation != gate_eval {
             return Err(DeSnarkError::HyperPlonkError(format!(
                 "PCS-path gate eval mismatch: subclaim={:?}, gate_eval={:?}",
-                subclaim.expected_evaluation, gate_eval
+                hp_subclaim.expected_evaluation, gate_eval
             )));
         }
         info!(
@@ -920,10 +950,8 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         // ───────────────────────────────────────────────────────────
         // PCS batch_verify on all individual commitments
         //
-        // d_multi_open_internal appends eval_points/evals to the
-        // transcript before generating challenge t, matching the
-        // standard batch_verify_internal. Both PCS::batch_verify
-        // and DeMkzg::batch_verify produce identical results.
+        // Use transcript-derived hp_subclaim.point as the opening
+        // point, NOT the prover-supplied proof.proof.point.
         // ───────────────────────────────────────────────────────────
         let all_commits: Vec<Commitment<E>> = sel_commits
             .iter()
@@ -931,8 +959,8 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
             .cloned()
             .collect();
 
-        // Opening point = (r_phase1, r_party), i.e. everything after r_b
-        let pcs_point = proof.proof.point[proof.num_sumfold_rounds..].to_vec();
+        // Opening point = hp_subclaim.point (transcript-derived r_phase1 ∥ r_party)
+        let pcs_point = hp_subclaim.point.clone();
         let points: Vec<Vec<E::ScalarField>> = vec![pcs_point; all_commits.len()];
 
         // Replay PCS transcript: fresh transcript with all commitments appended
@@ -969,7 +997,7 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         // We fold individual MLE evaluations first (with eq(r_b,·) weights),
         // then compute the gate function on the folded evaluations.
         // ───────────────────────────────────────────────────────────
-        let r_phase1 = &subclaim.point[..num_vars];
+        let r_phase1 = &hp_subclaim.point[..num_vars];
 
         let eq_rb_vec = build_eq_x_r_vec(r_b)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
@@ -992,10 +1020,10 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         let folded_eval = eval_f(gate_func, &folded_sel_evals, &folded_wit_evals)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("eval_f: {e}")))?;
 
-        if subclaim.expected_evaluation != folded_eval {
+        if hp_subclaim.expected_evaluation != folded_eval {
             return Err(DeSnarkError::HyperPlonkError(format!(
                 "Circuit-level eval mismatch: subclaim={:?}, folded_eval={:?}",
-                subclaim.expected_evaluation, folded_eval
+                hp_subclaim.expected_evaluation, folded_eval
             )));
         }
         info!(

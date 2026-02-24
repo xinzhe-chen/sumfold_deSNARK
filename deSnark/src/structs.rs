@@ -290,7 +290,8 @@ pub struct BenchmarkTimings {
     /// Distributed proving: d_commit + SumFold + SumCheck + commitment folding
     /// + d_multi_open + assembly
     pub prover_ms: f64,
-    /// Proof verification: SumCheck replay + gate check + PCS batch_verify
+    /// Proof verification: SumFold verify + HyperPianist SumCheck verify
+    /// + gate check + PCS batch_verify
     pub verifier_ms: f64,
 }
 
