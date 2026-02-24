@@ -24,9 +24,7 @@ use transcript::IOPTranscript;
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 #[cfg(feature = "parallel")]
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::pcs::multilinear_kzg::batching::BatchProof;
 

@@ -758,8 +758,8 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
 /// 3. make_circuit(config, srs) -> (PK, VK, Vec<MockCircuit>)
 /// 4. circuits_to_sumcheck(pk, circuits) -> Vec<SumCheckInstance>
 /// 5. dist_prove_sumcheck(polys, sums) -> Proof  (inner layer)
-/// 6. verify_proof_eval(proof, pk, circuits, aux) — full verification
-///    (SumFold verify + HyperPianist verify + gate check + PCS batch_verify)
+/// 6. verify_proof_eval(proof, pk, circuits, aux) — full verification (SumFold
+///    verify + HyperPianist verify + gate check + PCS batch_verify)
 ///
 /// # Arguments
 /// * `config` - Protocol configuration
@@ -772,17 +772,19 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
 ///
 /// Full verification flow:
 /// 1. **Verify SumFold** via `verify_sum_fold_with_transcript` — checks all
-///    SumFold round messages and derives `r_b` (folding point) + `rho` from
-///    the transcript. Also checks consistency: `c == v * eq(ρ, r_b)`.
+///    SumFold round messages and derives `r_b` (folding point) + `rho` from the
+///    transcript. Also checks consistency: `c == v * eq(ρ, r_b)`.
 /// 2. **Verify HyperPianist SumCheck** — continues on the same transcript,
 ///    returns `hp_subclaim` with transcript-derived opening point.
 /// 3. **Gate equation check** — fold evaluations with `eq(r_b, ·)` weights,
-///    evaluate gate function, compare against `hp_subclaim.expected_evaluation`.
+///    evaluate gate function, compare against
+///    `hp_subclaim.expected_evaluation`.
 /// 4. **PCS batch_verify** — verify commitments at the transcript-derived
 ///    opening point (`hp_subclaim.point`).
 ///
 /// All points used (r_b, rho, pcs_point) are **derived from the transcript**,
-/// never taken from `proof.proof.point` (which is prover-supplied and untrusted).
+/// never taken from `proof.proof.point` (which is prover-supplied and
+/// untrusted).
 ///
 /// Without PCS data, falls back to local MLE evaluation (legacy path).
 fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
@@ -809,15 +811,11 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         proofs: proof.proof.proofs[..proof.num_sumfold_rounds].to_vec(),
     };
 
-    let (sf_subclaim, rho) = verify_sum_fold_with_transcript(
-        proof.sum_t,
-        &sf_proof,
-        &proof.q_aux_info,
-        &mut transcript,
-    )
-    .map_err(|e| {
-        DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
-    })?;
+    let (sf_subclaim, rho) =
+        verify_sum_fold_with_transcript(proof.sum_t, &sf_proof, &proof.q_aux_info, &mut transcript)
+            .map_err(|e| {
+                DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
+            })?;
 
     // r_b is the transcript-derived folding point (NOT from proof.proof.point)
     let r_b = &sf_subclaim.point;

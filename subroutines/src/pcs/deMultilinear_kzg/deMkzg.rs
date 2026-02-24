@@ -25,8 +25,8 @@ use ark_ff::PrimeField;
 use ark_poly::MultilinearExtension;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
-    end_timer, format, marker::PhantomData, rand::Rng, start_timer, sync::Arc,
-    vec, vec::Vec, One, Zero,
+    end_timer, format, marker::PhantomData, rand::Rng, start_timer, sync::Arc, vec, vec::Vec, One,
+    Zero,
 };
 use std::ops::Mul;
 use transcript::IOPTranscript;
