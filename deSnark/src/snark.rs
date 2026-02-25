@@ -856,52 +856,31 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         &proof.witness_commits,
     ) {
         // ───────────────────────────────────────────────────────────
-        // PCS path (per-instance selectors + witnesses):
+        // PCS path (commitment-folded):
         //
-        // The batch proof contains M*(num_sel + num_wit) individual
-        // evaluations. Layout:
-        //   evals[0..M*num_sel] — per-instance selector evals
-        //   evals[M*num_sel..M*(num_sel+num_wit)] — per-instance witness evals
+        // The batch proof contains (num_sel + num_wit) FOLDED
+        // evaluations (prover already folded with eq(r_b, i)):
+        //   evals[0..num_sel]            — folded selector evals
+        //   evals[num_sel..num_sel+num_wit] — folded witness evals
         //
-        // The gate check folds both selectors and witnesses:
-        //   folded_sel_j = Σ_i eq(r_b,i) * sel_j^i_eval
-        //   folded_wit_j = Σ_i eq(r_b,i) * wit_j^i_eval
-        //   gate_eval = eval_f(gate, folded_sel, folded_wit)
+        // Gate check uses folded evals directly.
+        // batch_verify uses folded commitments reconstructed via MSM.
         // ───────────────────────────────────────────────────────────
         let evals = &batch_proof.f_i_eval_at_point_i;
-        let expected_num_evals = num_instances * (num_selectors + num_witnesses);
+        let expected_num_evals = num_selectors + num_witnesses;
         if evals.len() != expected_num_evals {
             return Err(DeSnarkError::HyperPlonkError(format!(
-                "batch proof eval count mismatch: got {}, expected {} (M*(num_sel+num_wit)={}*({} + {}))",
+                "batch proof eval count mismatch: got {}, expected {} (num_sel+num_wit={} + {})",
                 evals.len(),
                 expected_num_evals,
-                num_instances,
                 num_selectors,
                 num_witnesses
             )));
         }
 
-        // Fold per-instance selector evaluations with eq(r_b, i)
-        let eq_rb_vec = build_eq_x_r_vec(r_b)
-            .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
-
-        let mut folded_sel_evals = vec![E::ScalarField::from(0u64); num_selectors];
-        for i in 0..num_instances {
-            let w = eq_rb_vec[i];
-            for j in 0..num_selectors {
-                folded_sel_evals[j] += w * evals[i * num_selectors + j];
-            }
-        }
-
-        // Fold per-instance witness evaluations with eq(r_b, i)
-        let sel_total = num_instances * num_selectors;
-        let mut folded_wit_evals = vec![E::ScalarField::from(0u64); num_witnesses];
-        for i in 0..num_instances {
-            let w = eq_rb_vec[i];
-            for j in 0..num_witnesses {
-                folded_wit_evals[j] += w * evals[sel_total + i * num_witnesses + j];
-            }
-        }
+        // Evals from batch proof are already folded by the prover
+        let folded_sel_evals = evals[..num_selectors].to_vec();
+        let folded_wit_evals = evals[num_selectors..].to_vec();
 
         let gate_eval = eval_f(gate_func, &folded_sel_evals, &folded_wit_evals)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("eval_f: {e}")))?;
@@ -918,27 +897,43 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         );
 
         // ───────────────────────────────────────────────────────────
-        // PCS batch_verify on all individual commitments
+        // PCS batch_verify on FOLDED commitments
         //
-        // d_multi_open_internal appends eval_points/evals to the
-        // transcript before generating challenge t, matching the
-        // standard batch_verify_internal. Both PCS::batch_verify
-        // and DeMkzg::batch_verify produce identical results.
+        // Reconstruct folded commitments from individual commits
+        // using eq(r_b, i) weights, then batch_verify on the
+        // (num_sel + num_wit) folded commitments.
         // ───────────────────────────────────────────────────────────
-        let all_commits: Vec<Commitment<E>> = sel_commits
-            .iter()
-            .chain(wit_commits.iter())
-            .cloned()
-            .collect();
+        let eq_rb_vec = build_eq_x_r_vec(r_b)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
+
+        // Fold selector commits: C_sel_j_fold = Σ_i eq(r_b,i) * C_sel_j^i
+        let mut folded_commits: Vec<Commitment<E>> =
+            Vec::with_capacity(num_selectors + num_witnesses);
+        for j in 0..num_selectors {
+            let bases: Vec<_> = (0..num_instances)
+                .map(|i| sel_commits[i * num_selectors + j].0)
+                .collect();
+            let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
+            folded_commits.push(Commitment(comm_proj.into()));
+        }
+
+        // Fold witness commits: C_wit_j_fold = Σ_i eq(r_b,i) * C_wit_j^i
+        for j in 0..num_witnesses {
+            let bases: Vec<_> = (0..num_instances)
+                .map(|i| wit_commits[i * num_witnesses + j].0)
+                .collect();
+            let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
+            folded_commits.push(Commitment(comm_proj.into()));
+        }
 
         // Opening point = (r_phase1, r_party), i.e. everything after r_b
         let pcs_point = proof.proof.point[proof.num_sumfold_rounds..].to_vec();
-        let points: Vec<Vec<E::ScalarField>> = vec![pcs_point; all_commits.len()];
+        let points: Vec<Vec<E::ScalarField>> = vec![pcs_point; folded_commits.len()];
 
-        // Replay PCS transcript: fresh transcript with all commitments appended
+        // Replay PCS transcript with folded commitments
         let mut pcs_transcript =
             <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
-        for c in &all_commits {
+        for c in &folded_commits {
             pcs_transcript
                 .append_serializable_element(b"pcs_cm", c)
                 .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript: {e}")))?;
@@ -946,7 +941,7 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
 
         let pcs_ok = PCS::batch_verify(
             &vk.pcs_param,
-            &all_commits,
+            &folded_commits,
             &points,
             batch_proof,
             &mut pcs_transcript,
@@ -958,7 +953,10 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
                 "PCS batch_verify failed: opening proof does not match commitments".to_string(),
             ));
         }
-        info!("✅ PCS batch_verify passed");
+        info!(
+            "✅ PCS batch_verify passed ({} folded commits)",
+            folded_commits.len()
+        );
     } else {
         // ───────────────────────────────────────────────────────────
         // Legacy path: evaluate MLEs locally (no PCS openings)
@@ -1102,19 +1100,23 @@ pub fn dist_prove<E: Pairing>(
     let iop_proof = dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(polys, sums)?;
 
     // ═══════════════════════════════════════════════════════════════
-    // Phase 4: PCS batch opening (per-instance selectors + witnesses)
+    // Phase 4: Commitment folding + PCS batch opening
     //
-    // Open all M*(num_sel + num_wit) polynomials individually.
+    // After SumFold, r_b is known. We fold M per-instance polynomials
+    // into 1 using eq(r_b, i) weights, then open only (num_sel + num_wit)
+    // folded polynomials instead of M*(num_sel + num_wit).
     //
     // Steps:
-    //   4a. Broadcast pcs_point to all parties
-    //   4b. Evaluate all M*num_sel selectors + M*num_wit witnesses at local_point
-    //   4c. Aggregate evaluations across parties (distributed → global)
-    //   4d. d_multi_open on all M*(num_sel + num_wit) polynomials
+    //   4a. Broadcast r_b + pcs_point to all parties
+    //   4b. Compute eq(r_b, i) folding weights
+    //   4c. Fold selector and witness polynomials locally
+    //   4d. Master folds commitments via MSM
+    //   4e. Evaluate folded polys at local_point, aggregate across parties
+    //   4f. d_multi_open on (num_sel + num_wit) folded polynomials
     // ═══════════════════════════════════════════════════════════════
 
     // 4a: Master extracts and broadcasts r_b + PCS opening point
-    let (_r_b_vec, pcs_point): (Vec<E::ScalarField>, Vec<E::ScalarField>) = if Net::am_master() {
+    let (r_b_vec, pcs_point): (Vec<E::ScalarField>, Vec<E::ScalarField>) = if Net::am_master() {
         let proof_ref = iop_proof.as_ref().unwrap();
         let nsf = proof_ref.num_sumfold_rounds;
         let r_b = proof_ref.proof.point[..nsf].to_vec();
@@ -1131,19 +1133,112 @@ pub fn dist_prove<E: Pairing>(
         pcs_point.len().saturating_sub(num_vars)
     );
 
-    // 4b: Each party evaluates all M*num_sel + M*num_wit polys at local_point
-    let local_point = &pcs_point[..num_vars];
-    let total_polys = num_instances * (num_selectors + num_witnesses);
+    // 4b: Compute eq(r_b, i) weights for polynomial/commitment folding
+    let eq_rb_vec = build_eq_x_r_vec(&r_b_vec)
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec for folding: {e}")))?;
 
-    let mut local_evals: Vec<E::ScalarField> = Vec::with_capacity(total_polys);
-    for sel_poly in &selector_polys {
+    let fold_timer = Instant::now();
+
+    // 4c: Each party folds its local polynomials with eq(r_b, i) weights
+    //     sel_j_fold(x) = Σ_i eq(r_b,i) * sel_j^i(x)
+    //     wit_j_fold(x) = Σ_i eq(r_b,i) * wit_j^i(x)
+    let mut folded_sel_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
+        Vec::with_capacity(num_selectors);
+    for j in 0..num_selectors {
+        let poly_nv = selector_polys[j].num_vars;
+        let n = 1 << poly_nv;
+        let mut folded_evals = vec![E::ScalarField::from(0u64); n];
+        for i in 0..num_instances {
+            let w = eq_rb_vec[i];
+            let src = &selector_polys[i * num_selectors + j].evaluations;
+            for (k, v) in folded_evals.iter_mut().enumerate() {
+                *v += w * src[k];
+            }
+        }
+        folded_sel_polys.push(Arc::new(
+            DenseMultilinearExtension::from_evaluations_vec(poly_nv, folded_evals),
+        ));
+    }
+
+    let mut folded_wit_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
+        Vec::with_capacity(num_witnesses);
+    for j in 0..num_witnesses {
+        let poly_nv = witness_polys[j].num_vars;
+        let n = 1 << poly_nv;
+        let mut folded_evals = vec![E::ScalarField::from(0u64); n];
+        for i in 0..num_instances {
+            let w = eq_rb_vec[i];
+            let src = &witness_polys[i * num_witnesses + j].evaluations;
+            for (k, v) in folded_evals.iter_mut().enumerate() {
+                *v += w * src[k];
+            }
+        }
+        folded_wit_polys.push(Arc::new(
+            DenseMultilinearExtension::from_evaluations_vec(poly_nv, folded_evals),
+        ));
+    }
+
+    // 4d: Master folds commitments via MSM
+    //     C_sel_j_fold = Σ_i eq(r_b,i) * C_sel_j^i
+    //     C_wit_j_fold = Σ_i eq(r_b,i) * C_wit_j^i
+    let folded_sel_commit_opts: Vec<Option<Commitment<E>>>;
+    let folded_wit_commit_opts: Vec<Option<Commitment<E>>>;
+
+    if Net::am_master() {
+        let sel_commits: Vec<Commitment<E>> = selector_commit_opts
+            .iter()
+            .map(|c| c.clone().unwrap())
+            .collect();
+        let wit_commits: Vec<Commitment<E>> = witness_commit_opts
+            .iter()
+            .map(|c| c.clone().unwrap())
+            .collect();
+
+        folded_sel_commit_opts = (0..num_selectors)
+            .map(|j| {
+                let bases: Vec<_> = (0..num_instances)
+                    .map(|i| sel_commits[i * num_selectors + j].0)
+                    .collect();
+                let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
+                Some(Commitment(comm_proj.into()))
+            })
+            .collect();
+
+        folded_wit_commit_opts = (0..num_witnesses)
+            .map(|j| {
+                let bases: Vec<_> = (0..num_instances)
+                    .map(|i| wit_commits[i * num_witnesses + j].0)
+                    .collect();
+                let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
+                Some(Commitment(comm_proj.into()))
+            })
+            .collect();
+    } else {
+        folded_sel_commit_opts = vec![None; num_selectors];
+        folded_wit_commit_opts = vec![None; num_witnesses];
+    }
+
+    info!(
+        "✅ Commitment folding completed in {:?} ({} sel + {} wit → {} folded polys)",
+        fold_timer.elapsed(),
+        num_instances * num_selectors,
+        num_instances * num_witnesses,
+        num_selectors + num_witnesses,
+    );
+
+    // 4e: Each party evaluates (num_sel + num_wit) FOLDED polys at local_point
+    let local_point = &pcs_point[..num_vars];
+    let folded_total = num_selectors + num_witnesses;
+
+    let mut local_evals: Vec<E::ScalarField> = Vec::with_capacity(folded_total);
+    for sel_poly in &folded_sel_polys {
         local_evals.push(sel_poly.evaluate(local_point).unwrap());
     }
-    for wit_poly in &witness_polys {
+    for wit_poly in &folded_wit_polys {
         local_evals.push(wit_poly.evaluate(local_point).unwrap());
     }
 
-    // 4c: Aggregate local evaluations across parties to get global evaluations
+    // Aggregate local evaluations across parties to get global evaluations
     let global_evals: Vec<E::ScalarField> = {
         let all_local_evals: Option<Vec<Vec<E::ScalarField>>> = Net::send_to_master(&local_evals);
         if Net::am_master() {
@@ -1165,30 +1260,25 @@ pub fn dist_prove<E: Pairing>(
         }
     };
 
-    // 4d: Collect ALL polynomials for d_multi_open
+    // 4f: d_multi_open on FOLDED polynomials
     let mut all_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
-        Vec::with_capacity(total_polys);
-    all_polys.extend(selector_polys.iter().cloned());
-    all_polys.extend(witness_polys.iter().cloned());
+        Vec::with_capacity(folded_total);
+    all_polys.extend(folded_sel_polys.iter().cloned());
+    all_polys.extend(folded_wit_polys.iter().cloned());
 
-    let points: Vec<Vec<E::ScalarField>> = vec![pcs_point.clone(); total_polys];
+    let points: Vec<Vec<E::ScalarField>> = vec![pcs_point.clone(); folded_total];
 
-    // 4e: PCS transcript + d_multi_open
     let mut pcs_transcript =
         <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
     if Net::am_master() {
-        let sel_commits: Vec<Commitment<E>> = selector_commit_opts
+        // Append FOLDED commits to PCS transcript
+        let folded_commits: Vec<Commitment<E>> = folded_sel_commit_opts
             .iter()
+            .chain(folded_wit_commit_opts.iter())
             .map(|c| c.clone().unwrap())
             .collect();
-        let wit_commits: Vec<Commitment<E>> = witness_commit_opts
-            .iter()
-            .map(|c| c.clone().unwrap())
-            .collect();
-
-        // Append all commits (sel + all wit) to PCS transcript
-        for c in sel_commits.iter().chain(wit_commits.iter()) {
+        for c in &folded_commits {
             pcs_transcript
                 .append_serializable_element(b"pcs_cm", c)
                 .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript: {e}")))?;
@@ -1205,11 +1295,11 @@ pub fn dist_prove<E: Pairing>(
     )
     .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_multi_open: {e}")))?;
     info!(
-        "✅ PCS d_multi_open completed in {:?} ({} polys: {} sel + {} wit)",
+        "✅ PCS d_multi_open completed in {:?} ({} folded polys: {} sel + {} wit)",
         open_timer.elapsed(),
-        total_polys,
-        num_instances * num_selectors,
-        num_instances * num_witnesses
+        folded_total,
+        num_selectors,
+        num_witnesses
     );
 
     // ═══════════════════════════════════════════════════════════════
