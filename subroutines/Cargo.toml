@@ -27,7 +27,7 @@ tracing = "0.1"
 ark-poly-commit = "0.4.0"
 deNetwork = { path = "../deNetwork", optional = true }
 
-ark-bls12-377 = "0.4"
+ark-bls12-377 = "0.5"
 ark-bn254 = "0.4"
 nalgebra = "0.32"
 ark-transcript = "0.0.3"
