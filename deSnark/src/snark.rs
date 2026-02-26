@@ -1155,9 +1155,10 @@ pub fn dist_prove<E: Pairing>(
                 *v += w * src[k];
             }
         }
-        folded_sel_polys.push(Arc::new(
-            DenseMultilinearExtension::from_evaluations_vec(poly_nv, folded_evals),
-        ));
+        folded_sel_polys.push(Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+            poly_nv,
+            folded_evals,
+        )));
     }
 
     let mut folded_wit_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
@@ -1173,9 +1174,10 @@ pub fn dist_prove<E: Pairing>(
                 *v += w * src[k];
             }
         }
-        folded_wit_polys.push(Arc::new(
-            DenseMultilinearExtension::from_evaluations_vec(poly_nv, folded_evals),
-        ));
+        folded_wit_polys.push(Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+            poly_nv,
+            folded_evals,
+        )));
     }
 
     // 4d: Master folds commitments via MSM
