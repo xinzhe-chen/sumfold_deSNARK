@@ -488,24 +488,35 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         // compute evaluations of f_j(b,x)
         let new_num_vars = length + num_vars;
-        let mut new_mle = Vec::new();
-        let mut hm = HashMap::new();
 
         let eval_len = 1 << num_vars;
-        for j in 0..t {
-            let mut f = Vec::with_capacity(m * eval_len);
-            for k in 0..eval_len {
-                for i in 0..m {
-                    f.push(polys[i].flattened_ml_extensions[j].evaluations[k].clone());
+        // Extract eval slices to avoid capturing non-Sync VirtualPolynomial
+        let all_evals: Vec<Vec<&[F]>> = (0..m)
+            .map(|i| {
+                (0..t)
+                    .map(|j| polys[i].flattened_ml_extensions[j].evaluations.as_slice())
+                    .collect()
+            })
+            .collect();
+        // Parallelize outer loop: each MLE j is independent
+        let new_mle: Vec<Arc<DenseMultilinearExtension<F>>> = (0..t)
+            .into_par_iter()
+            .map(|j| {
+                let mut f = Vec::with_capacity(m * eval_len);
+                for k in 0..eval_len {
+                    for i in 0..m {
+                        f.push(all_evals[i][j][k]);
+                    }
                 }
-            }
-            let mle = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                new_num_vars,
-                f,
-            ));
-            let mle_ptr = Arc::as_ptr(&mle);
-            new_mle.push(mle);
-            hm.insert(mle_ptr, j);
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    new_num_vars,
+                    f,
+                ))
+            })
+            .collect();
+        let mut hm = HashMap::new();
+        for (j, mle) in new_mle.iter().enumerate() {
+            hm.insert(Arc::as_ptr(mle), j);
         }
 
         // compose_poly h
@@ -590,6 +601,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             }
 
             products_list.iter().for_each(|(coefficient, products)| {
+                let bucket_mask = (1 << (length - round - 1)) - 1;
                 let mut sum =
                     cfg_into_iter!(0..1 << (compose_poly.aux_info.num_variables - round - 1))
                         .fold(
@@ -610,11 +622,11 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                                         *step = table[(b << 1) + 1] - table[b << 1];
                                     },
                                 );
-                                acc[0][b % (1 << (length - round - 1))] +=
+                                acc[0][b & bucket_mask] +=
                                     buf.iter().map(|(eval, _)| eval).product::<F>();
                                 acc[1..].iter_mut().for_each(|acc| {
                                     buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                                    acc[b % (1 << (length - round - 1))] +=
+                                    acc[b & bucket_mask] +=
                                         buf.iter().map(|(eval, _)| eval).product::<F>();
                                 });
                                 (buf, acc)
@@ -771,24 +783,35 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         // Stage 3: compute evaluations of f_j(b,x) - interleaved MLE structure
         let new_num_vars = length + num_vars;
-        let mut new_mle = Vec::with_capacity(t);
-        let mut hm = HashMap::new();
 
         let eval_len = 1 << num_vars;
-        for j in 0..t {
-            let mut f = Vec::with_capacity(m * eval_len);
-            for k in 0..eval_len {
-                for i in 0..m {
-                    f.push(polys[i].flattened_ml_extensions[j].evaluations[k]);
+        // Extract eval slices to avoid capturing non-Sync VirtualPolynomial
+        let all_evals: Vec<Vec<&[F]>> = (0..m)
+            .map(|i| {
+                (0..t)
+                    .map(|j| polys[i].flattened_ml_extensions[j].evaluations.as_slice())
+                    .collect()
+            })
+            .collect();
+        // Parallelize outer loop: each MLE j is independent
+        let new_mle: Vec<Arc<DenseMultilinearExtension<F>>> = (0..t)
+            .into_par_iter()
+            .map(|j| {
+                let mut f = Vec::with_capacity(m * eval_len);
+                for k in 0..eval_len {
+                    for i in 0..m {
+                        f.push(all_evals[i][j][k]);
+                    }
                 }
-            }
-            let mle = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-                new_num_vars,
-                f,
-            ));
-            let mle_ptr = Arc::as_ptr(&mle);
-            new_mle.push(mle);
-            hm.insert(mle_ptr, j);
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    new_num_vars,
+                    f,
+                ))
+            })
+            .collect();
+        let mut hm = HashMap::new();
+        for (j, mle) in new_mle.iter().enumerate() {
+            hm.insert(Arc::as_ptr(mle), j);
         }
 
         // Stage 4: compose_poly h
@@ -816,15 +839,18 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         let mut challenge = None;
         let mut prover_msgs = Vec::with_capacity(length);
         let mut challenges = Vec::with_capacity(length);
-        let mut eq_fix = eq_xr_poly.as_ref().clone();
+        let mut eq_fix_evals = eq_xr_poly.to_evaluations();
 
-        let mut flattened_ml_extensions: Vec<DenseMultilinearExtension<F>> = compose_poly
+        // Use raw evaluation vectors instead of DenseMultilinearExtension objects
+        // to avoid per-round heap allocations via fix_variables.
+        let mut compose_mle_evals: Vec<Vec<F>> = compose_poly
             .flattened_ml_extensions
-            .par_iter()
-            .map(|x| x.as_ref().clone())
+            .iter()
+            .map(|mle| mle.evaluations.clone())
             .collect();
 
         let products_list = compose_poly.products.clone();
+        let compose_nv = compose_poly.aux_info.num_variables;
 
         for round in 0..length {
             if let Some(chal) = challenge {
@@ -836,15 +862,19 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                 challenges.push(chal);
 
                 let r = challenges[round - 1];
-                #[cfg(feature = "parallel")]
-                flattened_ml_extensions
-                    .par_iter_mut()
-                    .for_each(|mle| *mle = fix_variables(mle, &[r]));
-                #[cfg(not(feature = "parallel"))]
-                flattened_ml_extensions
-                    .iter_mut()
-                    .for_each(|mle| *mle = fix_variables(mle, &[r]));
-                eq_fix = fix_variables(&eq_fix, &[r]);
+                let nv = compose_nv - (round - 1);
+                let half_len = 1 << (nv - 1);
+                // In-place fix_variables on raw Vec<F> — no heap allocation
+                for j in 0..t {
+                    let src = &compose_mle_evals[j];
+                    let mut dst = vec![F::zero(); half_len];
+                    dst.par_iter_mut().enumerate().for_each(|(i, x)| {
+                        *x = src[i << 1] + (src[(i << 1) + 1] - src[i << 1]) * r;
+                    });
+                    compose_mle_evals[j] = dst;
+                }
+                let eq_nv = length - (round - 1);
+                fix_variables_in_place(&mut eq_fix_evals, eq_nv, &[r]);
             } else if round > 0 {
                 return Err(PolyIOPErrors::InvalidProver(
                     "verifier message is empty".to_string(),
@@ -859,9 +889,8 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                 compose_poly.aux_info.max_degree + 1
             ];
             for b in 0..1 << (length - round - 1) {
-                let table = &eq_fix;
-                let mut eval = table[b << 1];
-                let step = table[(b << 1) + 1] - table[b << 1];
+                let mut eval = eq_fix_evals[b << 1];
+                let step = eq_fix_evals[(b << 1) + 1] - eval;
 
                 eq_sum[0][b] = eval;
 
@@ -872,8 +901,9 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             }
 
             products_list.iter().for_each(|(coefficient, products)| {
+                let bucket_mask = (1 << (length - round - 1)) - 1;
                 let mut sum =
-                    cfg_into_iter!(0..1 << (compose_poly.aux_info.num_variables - round - 1))
+                    cfg_into_iter!(0..1 << (compose_nv - round - 1))
                         .fold(
                             || {
                                 (
@@ -887,16 +917,16 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                             |(mut buf, mut acc), b| {
                                 buf.iter_mut().zip(products.iter()).for_each(
                                     |((eval, step), f)| {
-                                        let table = &flattened_ml_extensions[*f];
+                                        let table = &compose_mle_evals[*f];
                                         *eval = table[b << 1];
                                         *step = table[(b << 1) + 1] - table[b << 1];
                                     },
                                 );
-                                acc[0][b % (1 << (length - round - 1))] +=
+                                acc[0][b & bucket_mask] +=
                                     buf.iter().map(|(eval, _)| eval).product::<F>();
                                 acc[1..].iter_mut().for_each(|acc| {
                                     buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                                    acc[b % (1 << (length - round - 1))] +=
+                                    acc[b & bucket_mask] +=
                                         buf.iter().map(|(eval, _)| eval).product::<F>();
                                 });
                                 (buf, acc)
@@ -967,26 +997,27 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         let rb = proof.point.clone();
 
         // Stage 6: compute the folded instance-witness pair using MLE transform
-        // OPTIMIZATION: Instead of explicit O(t * m * 2^num_vars) accumulation with
-        // eq_rb_vec, leverage the prover loop's intermediate state.
-        // After all rounds, flattened_ml_extensions is fixed at rb[0..length-1].
+        // After all rounds, compose_mle_evals is fixed at rb[0..length-1].
         // Apply one more fix_variables for the final challenge to get the folded MLEs.
         let v = c * eq_poly.evaluate(&rb).inverse().unwrap();
 
-        // Apply final challenge to get folded MLEs via transform
-        // Fix the last challenge on each MLE (they're already fixed at rb[0..length-1])
         let final_challenge_val = rb[length - 1];
+        let final_nv = compose_nv - (length - 1);
+        let final_half = 1 << (final_nv - 1);
 
-        // Fix the final challenge on all MLEs in parallel
-        #[cfg(feature = "parallel")]
-        let new_mle: Vec<Arc<DenseMultilinearExtension<F>>> = flattened_ml_extensions
-            .par_iter()
-            .map(|mle| Arc::new(fix_variables(mle, &[final_challenge_val])))
-            .collect();
-        #[cfg(not(feature = "parallel"))]
-        let new_mle: Vec<Arc<DenseMultilinearExtension<F>>> = flattened_ml_extensions
+        // Fix the final challenge on all MLEs using raw Vec operations
+        let new_mle: Vec<Arc<DenseMultilinearExtension<F>>> = compose_mle_evals
             .iter()
-            .map(|mle| Arc::new(fix_variables(mle, &[final_challenge_val])))
+            .map(|src| {
+                let mut dst = vec![F::zero(); final_half];
+                dst.par_iter_mut().enumerate().for_each(|(i, x)| {
+                    *x = src[i << 1] + (src[(i << 1) + 1] - src[i << 1]) * final_challenge_val;
+                });
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    final_nv - 1,
+                    dst,
+                ))
+            })
             .collect();
 
         let mut hm = HashMap::new();
@@ -1087,16 +1118,27 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         let max_degree = polys[0].aux_info.max_degree + 1;
         let products_list = polys[0].products.clone();
 
-        let mut compose_mle_evals: Vec<Vec<F>> = Vec::with_capacity(t);
-        for j in 0..t {
-            let mut f = Vec::with_capacity(m << num_vars);
-            for x in 0..(1 << num_vars) {
-                for i in 0..m {
-                    f.push(polys[i].flattened_ml_extensions[j].evaluations[x]);
+        // Extract eval slices to avoid capturing non-Sync VirtualPolynomial
+        let all_evals: Vec<Vec<&[F]>> = (0..m)
+            .map(|i| {
+                (0..t)
+                    .map(|j| polys[i].flattened_ml_extensions[j].evaluations.as_slice())
+                    .collect()
+            })
+            .collect();
+        // Parallelize outer loop: each MLE j is independent
+        let mut compose_mle_evals: Vec<Vec<F>> = (0..t)
+            .into_par_iter()
+            .map(|j| {
+                let mut f = Vec::with_capacity(m << num_vars);
+                for x in 0..(1 << num_vars) {
+                    for i in 0..m {
+                        f.push(all_evals[i][j][x]);
+                    }
                 }
-            }
-            compose_mle_evals.push(f);
-        }
+                f
+            })
+            .collect();
 
         // Precompute barycentric weights for extrapolation
         let extrapolation_aux: Vec<(Vec<F>, Vec<F>)> = (1..max_degree)
@@ -1164,6 +1206,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
             products_list.iter().for_each(|(coefficient, products)| {
                 let bucket_count = eq_bucket_count;
+                let bucket_mask = bucket_count - 1;
                 let mut sum = cfg_into_iter!(0..1 << (current_nv - 1))
                     .fold(
                         || {
@@ -1180,11 +1223,11 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                                     *eval = table[b << 1];
                                     *step = table[(b << 1) + 1] - table[b << 1];
                                 });
-                            acc[0][b % bucket_count] +=
+                            acc[0][b & bucket_mask] +=
                                 buf.iter().map(|(eval, _)| eval).product::<F>();
                             acc[1..].iter_mut().for_each(|acc| {
                                 buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                                acc[b % bucket_count] +=
+                                acc[b & bucket_mask] +=
                                     buf.iter().map(|(eval, _)| eval).product::<F>();
                             });
                             (buf, acc)

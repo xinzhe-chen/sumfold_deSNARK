@@ -141,16 +141,27 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     let max_degree = polys[0].aux_info.max_degree + 1;
     let products_list = polys[0].products.clone();
 
-    let mut compose_mle_evals: Vec<Vec<F>> = Vec::with_capacity(t);
-    for j in 0..t {
-        let mut f = Vec::with_capacity(m << num_vars);
-        for x in 0..(1 << num_vars) {
-            for i in 0..m {
-                f.push(polys[i].flattened_ml_extensions[j].evaluations[x]);
+    // Extract eval slices to avoid capturing non-Sync VirtualPolynomial
+    let all_evals: Vec<Vec<&[F]>> = (0..m)
+        .map(|i| {
+            (0..t)
+                .map(|j| polys[i].flattened_ml_extensions[j].evaluations.as_slice())
+                .collect()
+        })
+        .collect();
+    // Parallelize outer loop: each MLE j is independent
+    let mut compose_mle_evals: Vec<Vec<F>> = (0..t)
+        .into_par_iter()
+        .map(|j| {
+            let mut f = Vec::with_capacity(m << num_vars);
+            for x in 0..(1 << num_vars) {
+                for i in 0..m {
+                    f.push(all_evals[i][j][x]);
+                }
             }
-        }
-        compose_mle_evals.push(f);
-    }
+            f
+        })
+        .collect();
 
     // Precompute barycentric weights for extrapolation
     let extrapolation_aux: Vec<(Vec<F>, Vec<F>)> = (1..max_degree)
@@ -230,6 +241,7 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
 
         products_list.iter().for_each(|(coefficient, products)| {
             let bucket_count = eq_bucket_count;
+            let bucket_mask = bucket_count - 1;
             let mut sum = cfg_into_iter!(0..1 << (current_nv - 1))
                 .fold(
                     || {
@@ -246,10 +258,10 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
                                 *eval = table[b << 1];
                                 *step = table[(b << 1) + 1] - table[b << 1];
                             });
-                        acc[0][b % bucket_count] += buf.iter().map(|(eval, _)| eval).product::<F>();
+                        acc[0][b & bucket_mask] += buf.iter().map(|(eval, _)| eval).product::<F>();
                         acc[1..].iter_mut().for_each(|acc| {
                             buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                            acc[b % bucket_count] +=
+                            acc[b & bucket_mask] +=
                                 buf.iter().map(|(eval, _)| eval).product::<F>();
                         });
                         (buf, acc)

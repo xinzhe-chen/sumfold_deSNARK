@@ -345,29 +345,29 @@ pub fn prove_sumfold<F: PrimeField>(
         .map(|inst| (inst.poly, inst.sum))
         .unzip();
 
-    // In debug mode, save copies for v1/v3 before v2 consumes the originals
+    // In debug mode, save copies for v1/v2 before v3 consumes the originals
     #[cfg(debug_assertions)]
-    let (polys_v1, sums_v1, polys_v3, sums_v3) = {
+    let (polys_v1, sums_v1, polys_v2, sums_v2) = {
         let p1 = polys.iter().map(|p| p.deep_copy()).collect::<Vec<_>>();
         let s1 = sums.clone();
-        let p3 = polys.iter().map(|p| p.deep_copy()).collect::<Vec<_>>();
-        let s3 = sums.clone();
-        (p1, s1, p3, s3)
+        let p2 = polys.iter().map(|p| p.deep_copy()).collect::<Vec<_>>();
+        let s2 = sums.clone();
+        (p1, s1, p2, s2)
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // Run v2 (always) — uses originals directly, no copy in release
+    // Run v3 (always) — production path, uses originals directly
     // ═══════════════════════════════════════════════════════════════
     let start = Instant::now();
-    let (_proof_v2, _sum_t_v2, _aux_info_v2, folded_poly_v2, v_v2) =
-        <PolyIOP<F> as SumCheck<F>>::sum_fold_v2(polys, sums, transcript)
-            .map_err(|e| DeSnarkError::HyperPlonkError(format!("sum_fold v2 failed: {e}")))?;
-    let dur_v2 = start.elapsed();
-    info!("sum_fold v2: {:?}", dur_v2);
-    info!("v v2: {:?}", v_v2);
+    let (_proof_v3, _sum_t_v3, _aux_info_v3, folded_poly_v3, v_v3) =
+        <PolyIOP<F> as SumCheck<F>>::sum_fold_v3(polys, sums, transcript)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("sum_fold v3 failed: {e}")))?;
+    let dur_v3 = start.elapsed();
+    info!("sum_fold v3: {:?}", dur_v3);
+    info!("v v3: {:?}", v_v3);
 
     // ═══════════════════════════════════════════════════════════════
-    // Run v1 & v3 and cross-validate (debug only)
+    // Run v1 & v2 and cross-validate (debug only)
     // ═══════════════════════════════════════════════════════════════
     #[cfg(debug_assertions)]
     {
@@ -381,47 +381,47 @@ pub fn prove_sumfold<F: PrimeField>(
         info!("sum_fold v1: {:?}", dur_v1);
         info!("v v1: {:?}", v_v1);
 
-        // Run v3
+        // Run v2
         let start = Instant::now();
-        let mut transcript_v3 = <PolyIOP<F> as SumCheck<F>>::init_transcript();
-        let (proof_v3, sum_t_v3, aux_info_v3, folded_poly_v3, v_v3) =
-            <PolyIOP<F> as SumCheck<F>>::sum_fold_v3(polys_v3, sums_v3, &mut transcript_v3)
-                .map_err(|e| DeSnarkError::HyperPlonkError(format!("sum_fold v3 failed: {e}")))?;
-        let dur_v3 = start.elapsed();
-        info!("sum_fold v3: {:?}", dur_v3);
-        info!("v v3: {:?}", v_v3);
+        let mut transcript_v2 = <PolyIOP<F> as SumCheck<F>>::init_transcript();
+        let (proof_v2, sum_t_v2, aux_info_v2, folded_poly_v2, v_v2) =
+            <PolyIOP<F> as SumCheck<F>>::sum_fold_v2(polys_v2, sums_v2, &mut transcript_v2)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("sum_fold v2 failed: {e}")))?;
+        let dur_v2 = start.elapsed();
+        info!("sum_fold v2: {:?}", dur_v2);
+        info!("v v2: {:?}", v_v2);
 
-        // v1 vs v2
-        assert_eq!(sum_t_v1, _sum_t_v2, "sum_t mismatch: v1 vs v2");
-        assert_eq!(v_v1, v_v2, "v mismatch: v1 vs v2");
-        assert_eq!(proof_v1, _proof_v2, "proof mismatch: v1 vs v2");
+        // v1 vs v3
+        assert_eq!(sum_t_v1, _sum_t_v3, "sum_t mismatch: v1 vs v3");
+        assert_eq!(v_v1, v_v3, "v mismatch: v1 vs v3");
+        assert_eq!(proof_v1, _proof_v3, "proof mismatch: v1 vs v3");
         assert_eq!(
-            aux_info_v1.max_degree, _aux_info_v2.max_degree,
-            "aux_info max_degree mismatch: v1 vs v2"
+            aux_info_v1.max_degree, _aux_info_v3.max_degree,
+            "aux_info max_degree mismatch: v1 vs v3"
         );
         assert_eq!(
-            aux_info_v1.num_variables, _aux_info_v2.num_variables,
-            "aux_info num_variables mismatch: v1 vs v2"
+            aux_info_v1.num_variables, _aux_info_v3.num_variables,
+            "aux_info num_variables mismatch: v1 vs v3"
         );
         for j in 0..folded_poly_v1.flattened_ml_extensions.len() {
             assert_eq!(
                 folded_poly_v1.flattened_ml_extensions[j].evaluations,
-                folded_poly_v2.flattened_ml_extensions[j].evaluations,
-                "folded MLE[{}] mismatch: v1 vs v2",
+                folded_poly_v3.flattened_ml_extensions[j].evaluations,
+                "folded MLE[{}] mismatch: v1 vs v3",
                 j
             );
         }
 
         // v2 vs v3
-        assert_eq!(_sum_t_v2, sum_t_v3, "sum_t mismatch: v2 vs v3");
+        assert_eq!(sum_t_v2, _sum_t_v3, "sum_t mismatch: v2 vs v3");
         assert_eq!(v_v2, v_v3, "v mismatch: v2 vs v3");
-        assert_eq!(_proof_v2, proof_v3, "proof mismatch: v2 vs v3");
+        assert_eq!(proof_v2, _proof_v3, "proof mismatch: v2 vs v3");
         assert_eq!(
-            _aux_info_v2.max_degree, aux_info_v3.max_degree,
+            aux_info_v2.max_degree, _aux_info_v3.max_degree,
             "aux_info max_degree mismatch: v2 vs v3"
         );
         assert_eq!(
-            _aux_info_v2.num_variables, aux_info_v3.num_variables,
+            aux_info_v2.num_variables, _aux_info_v3.num_variables,
             "aux_info num_variables mismatch: v2 vs v3"
         );
         for j in 0..folded_poly_v2.flattened_ml_extensions.len() {
@@ -438,18 +438,18 @@ pub fn prove_sumfold<F: PrimeField>(
             sum_t_v1, v_v1
         );
         info!(
-            "Timing: v1={:?}, v2={:?}, v3={:?} | speedup v1/v2={:.2}x, v2/v3={:.2}x",
+            "Timing: v1={:?}, v2={:?}, v3={:?} | speedup v1/v3={:.2}x, v2/v3={:.2}x",
             dur_v1,
             dur_v2,
             dur_v3,
-            dur_v1.as_secs_f64() / dur_v2.as_secs_f64(),
+            dur_v1.as_secs_f64() / dur_v3.as_secs_f64(),
             dur_v2.as_secs_f64() / dur_v3.as_secs_f64(),
         );
     }
 
-    // Return v2 result (best single-machine version)
-    let folded_instance = SumCheckInstance::new(folded_poly_v2, v_v2);
-    let sumfold_proof = SumFoldProof::new(_proof_v2, _sum_t_v2, _aux_info_v2, v_v2);
+    // Return v3 result (best single-machine version)
+    let folded_instance = SumCheckInstance::new(folded_poly_v3, v_v3);
+    let sumfold_proof = SumFoldProof::new(_proof_v3, _sum_t_v3, _aux_info_v3, v_v3);
     Ok((folded_instance, sumfold_proof))
 }
 
