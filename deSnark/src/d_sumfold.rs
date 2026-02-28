@@ -68,6 +68,18 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     mut transcript: Option<&mut IOPTranscript<F>>,
 ) -> Result<(SumCheckInstance<F>, SumFoldProof<F>)> {
     let m = polys.len();
+    if m == 0 {
+        return Err(DeSnarkError::InvalidParameters(
+            "no polynomials to fold".into(),
+        ));
+    }
+    if !m.is_power_of_two() {
+        return Err(DeSnarkError::InvalidParameters(format!(
+            "number of instances must be power of 2, got {}",
+            m
+        )));
+    }
+
     let t = polys[0].flattened_ml_extensions.len();
     let num_vars = polys[0].aux_info.num_variables;
     let length = log2(m) as usize;
@@ -80,6 +92,65 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
         num_vars,
         length
     );
+
+    // ═══════════════════════════════════════════════════════════════
+    // M=1 fast path: no folding needed — return the single instance.
+    // Transcript still gets aux_info appended for consistency.
+    // ═══════════════════════════════════════════════════════════════
+    if m == 1 {
+        let q_aux_info = VPAuxInfo::<F> {
+            max_degree: polys[0].aux_info.max_degree + 1,
+            num_variables: 0,
+            phantom: PhantomData::default(),
+        };
+
+        // Master: append aux_info + squeeze empty rho for transcript consistency
+        if N::am_master() {
+            let tr = transcript
+                .as_deref_mut()
+                .expect("master must have transcript");
+            tr.append_serializable_element(b"aux info", &q_aux_info)
+                .map_err(|e| {
+                    DeSnarkError::HyperPlonkError(format!("transcript append aux info: {e}"))
+                })?;
+            let _rho: Vec<F> = tr
+                .get_and_append_challenge_vectors(b"sumfold rho", 0)
+                .map_err(|e| {
+                    DeSnarkError::HyperPlonkError(format!("transcript squeeze rho: {e}"))
+                })?;
+        }
+
+        let v = sums[0];
+        let sum_t = sums[0]; // eq(empty, empty) = 1
+
+        let proof = IOPProof {
+            point: vec![],
+            proofs: vec![],
+        };
+
+        // Network: aggregate sum_t and v (keep all parties in sync)
+        let all_sum_t = N::send_to_master(&sum_t);
+        let all_v = N::send_to_master(&v);
+        let (proof_sum_t, proof_v) = if N::am_master() {
+            let total_sum_t: F = all_sum_t.unwrap().into_iter().sum();
+            let total_v: F = all_v.unwrap().into_iter().sum();
+            (total_sum_t, total_v)
+        } else {
+            (sum_t, v)
+        };
+
+        let folded_poly = polys.into_iter().next().unwrap();
+        let sumfold_proof = SumFoldProof::new(proof, proof_sum_t, q_aux_info, proof_v);
+        let folded_instance = SumCheckInstance::new(folded_poly, v);
+
+        info!(
+            "✅ [Party {}] d_sumfold M=1 fast path: v={:?}",
+            N::party_id(),
+            v
+        );
+
+        return Ok((folded_instance, sumfold_proof));
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // Stage 1: Setup and Challenge Generation
@@ -497,7 +568,7 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
 mod tests {
     use super::*;
     use crate::{
-        snark::{circuits_to_sumcheck, make_circuit, prove_sumfold, setup, HyperPlonkPCS},
+        snark::{circuits_to_sumcheck, make_circuit, setup},
         structs::{Config, GateType},
     };
     use ark_bn254::{Bn254, Fr};

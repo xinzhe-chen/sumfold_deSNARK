@@ -177,7 +177,11 @@ for (( nv = NV_MIN; nv <= NV_MAX; nv++ )); do
     echo -e "${CYAN}──────────────────────────────────────────────────${NC}"
 
     # Accumulators — sum across M runs (not averaged) for direct comparison
-    # with sumfold_deSNARK which reports total cost for M instances in one batch
+    # with sumfold_deSNARK which reports total cost for M instances in one batch.
+    #
+    # Setup is counted ONCE (first rep only): SRS generation and key extraction
+    # are one-time costs for both systems.
+    # Prover/verifier/comm/proof are summed: M sequential proofs vs 1 batched.
     total_setup_ms=0
     total_prover_ms=0
     total_verifier_ms=0
@@ -213,7 +217,10 @@ for (( nv = NV_MIN; nv <= NV_MAX; nv++ )); do
             echo -e "  ${GREEN}setup=${s_ms}ms  prove=${p_ms}ms  verify=${v_ms}ms  proof=${p_bytes}B  sent=${c_sent}B  recv=${c_recv}B${NC}"
 
             # Accumulate (use awk for float addition)
-            total_setup_ms=$(awk "BEGIN{printf \"%.3f\", $total_setup_ms + $s_ms}")
+            # Setup is one-time; only count from first repetition
+            if (( rep == 1 )); then
+                total_setup_ms="$s_ms"
+            fi
             total_prover_ms=$(awk "BEGIN{printf \"%.3f\", $total_prover_ms + $p_ms}")
             total_verifier_ms=$(awk "BEGIN{printf \"%.3f\", $total_verifier_ms + $v_ms}")
             total_proof_bytes=$(( total_proof_bytes + p_bytes ))

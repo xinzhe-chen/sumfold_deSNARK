@@ -554,7 +554,9 @@ pub fn build_eq_x_r_vec<F: PrimeField>(r: &[F]) -> Result<Vec<F>, ArithErrors> {
 /// `r.len()-1` multiplications.
 fn build_eq_x_r_helper<F: PrimeField>(r: &[F], buf: &mut Vec<F>) -> Result<(), ArithErrors> {
     if r.is_empty() {
-        return Err(ArithErrors::InvalidParameters("r length is 0".to_string()));
+        // eq(empty, empty) = 1 (empty product convention)
+        buf.push(F::one());
+        return Ok(());
     } else if r.len() == 1 {
         // initializing the buffer with [1-r_0, r_0]
         buf.push(F::one() - r[0]);

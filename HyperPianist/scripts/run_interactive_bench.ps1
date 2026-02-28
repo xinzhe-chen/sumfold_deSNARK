@@ -160,7 +160,11 @@ for ($nv = $NvMin; $nv -le $NvMax; $nv++) {
     Write-Host "──────────────────────────────────────────────────" -ForegroundColor Cyan
 
     # Accumulators — sum across M runs (not averaged) for direct comparison
-    # with sumfold_deSNARK which reports total cost for M instances in one batch
+    # with sumfold_deSNARK which reports total cost for M instances in one batch.
+    #
+    # Setup is counted ONCE (first rep only): SRS generation and key extraction
+    # are one-time costs for both systems.
+    # Prover/verifier/comm/proof are summed: M sequential proofs vs 1 batched.
     $totSetup = 0.0; $totProver = 0.0; $totVerifier = 0.0
     $totProofBytes = 0; $totCommSent = 0; $totCommRecv = 0
 
@@ -201,7 +205,8 @@ for ($nv = $NvMin; $nv -le $NvMax; $nv++) {
                 $metrics.SetupMs, $metrics.ProverMs, $metrics.VerifierMs, `
                 $metrics.ProofBytes, $metrics.CommSent, $metrics.CommRecv) -ForegroundColor Green
 
-            $totSetup    += $metrics.SetupMs
+            # Setup is one-time; only count from first repetition
+            if ($rep -eq 1) { $totSetup = $metrics.SetupMs }
             $totProver   += $metrics.ProverMs
             $totVerifier += $metrics.VerifierMs
             $totProofBytes += $metrics.ProofBytes

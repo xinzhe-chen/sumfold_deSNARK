@@ -12,7 +12,9 @@ use ark_ec::{pairing::Pairing, scalar_mul::variable_base::VariableBaseMSM};
 use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{rand::Rng, test_rng, time::Instant};
+use ark_std::{cfg_into_iter, rand::Rng, test_rng, time::Instant};
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 use hyperplonk::{
     prelude::{build_f, eval_f},
@@ -1142,43 +1144,46 @@ pub fn dist_prove<E: Pairing>(
     // 4c: Each party folds its local polynomials with eq(r_b, i) weights
     //     sel_j_fold(x) = Σ_i eq(r_b,i) * sel_j^i(x)
     //     wit_j_fold(x) = Σ_i eq(r_b,i) * wit_j^i(x)
-    let mut folded_sel_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
-        Vec::with_capacity(num_selectors);
-    for j in 0..num_selectors {
-        let poly_nv = selector_polys[j].num_vars;
-        let n = 1 << poly_nv;
-        let mut folded_evals = vec![E::ScalarField::from(0u64); n];
-        for i in 0..num_instances {
-            let w = eq_rb_vec[i];
-            let src = &selector_polys[i * num_selectors + j].evaluations;
-            for (k, v) in folded_evals.iter_mut().enumerate() {
-                *v += w * src[k];
-            }
-        }
-        folded_sel_polys.push(Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-            poly_nv,
-            folded_evals,
-        )));
-    }
+    //     Parallelized across j (each polynomial is independent).
+    let folded_sel_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
+        cfg_into_iter!(0..num_selectors)
+            .map(|j| {
+                let poly_nv = selector_polys[j].num_vars;
+                let n = 1 << poly_nv;
+                let mut folded_evals = vec![E::ScalarField::from(0u64); n];
+                for i in 0..num_instances {
+                    let w = eq_rb_vec[i];
+                    let src = &selector_polys[i * num_selectors + j].evaluations;
+                    for (k, v) in folded_evals.iter_mut().enumerate() {
+                        *v += w * src[k];
+                    }
+                }
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    poly_nv,
+                    folded_evals,
+                ))
+            })
+            .collect();
 
-    let mut folded_wit_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
-        Vec::with_capacity(num_witnesses);
-    for j in 0..num_witnesses {
-        let poly_nv = witness_polys[j].num_vars;
-        let n = 1 << poly_nv;
-        let mut folded_evals = vec![E::ScalarField::from(0u64); n];
-        for i in 0..num_instances {
-            let w = eq_rb_vec[i];
-            let src = &witness_polys[i * num_witnesses + j].evaluations;
-            for (k, v) in folded_evals.iter_mut().enumerate() {
-                *v += w * src[k];
-            }
-        }
-        folded_wit_polys.push(Arc::new(DenseMultilinearExtension::from_evaluations_vec(
-            poly_nv,
-            folded_evals,
-        )));
-    }
+    let folded_wit_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
+        cfg_into_iter!(0..num_witnesses)
+            .map(|j| {
+                let poly_nv = witness_polys[j].num_vars;
+                let n = 1 << poly_nv;
+                let mut folded_evals = vec![E::ScalarField::from(0u64); n];
+                for i in 0..num_instances {
+                    let w = eq_rb_vec[i];
+                    let src = &witness_polys[i * num_witnesses + j].evaluations;
+                    for (k, v) in folded_evals.iter_mut().enumerate() {
+                        *v += w * src[k];
+                    }
+                }
+                Arc::new(DenseMultilinearExtension::from_evaluations_vec(
+                    poly_nv,
+                    folded_evals,
+                ))
+            })
+            .collect();
 
     // 4d: Master folds commitments via MSM
     //     C_sel_j_fold = Σ_i eq(r_b,i) * C_sel_j^i
@@ -1196,7 +1201,7 @@ pub fn dist_prove<E: Pairing>(
             .map(|c| c.clone().unwrap())
             .collect();
 
-        folded_sel_commit_opts = (0..num_selectors)
+        folded_sel_commit_opts = cfg_into_iter!(0..num_selectors)
             .map(|j| {
                 let bases: Vec<_> = (0..num_instances)
                     .map(|i| sel_commits[i * num_selectors + j].0)
@@ -1206,7 +1211,7 @@ pub fn dist_prove<E: Pairing>(
             })
             .collect();
 
-        folded_wit_commit_opts = (0..num_witnesses)
+        folded_wit_commit_opts = cfg_into_iter!(0..num_witnesses)
             .map(|j| {
                 let bases: Vec<_> = (0..num_instances)
                     .map(|i| wit_commits[i * num_witnesses + j].0)
@@ -1441,5 +1446,70 @@ mod tests {
             merge_and_verify_sumfold(vec![proof]).expect("merge_and_verify_sumfold failed");
 
         println!("Verified: v_total={:?}", v_total);
+    }
+
+    /// Test prove_sumfold with M=1 (single instance, no folding).
+    ///
+    /// This was previously a crash: length=log2(1)=0 caused usize underflow.
+    #[test]
+    fn test_prove_sumfold_m1() {
+        use ark_bn254::{Bn254, Fr};
+        use subroutines::MultilinearKzgPCS;
+
+        // ν=0 → M=1 instance, μ=10 → N=1024, κ=0 → K=1 party
+        let config = Config::new(0, 10, GateType::Vanilla, 0);
+
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
+
+        let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
+            .expect("circuits_to_sumcheck failed");
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].sum, Fr::from(0u64));
+
+        let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
+        let (folded, proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold with M=1 should succeed");
+
+        // M=1: 0 rounds, folded poly is the original
+        assert_eq!(proof.proof.proofs.len(), 0);
+        assert_eq!(proof.proof.point.len(), 0);
+        assert_eq!(proof.q_aux_info.num_variables, 0);
+        assert_eq!(
+            folded.poly.aux_info.num_variables,
+            config.log_num_constraints - config.log_num_parties
+        );
+        println!(
+            "M=1 test passed: v={:?}, sum_t={:?}",
+            proof.v, proof.sum_t
+        );
+    }
+
+    /// Test merge_and_verify_sumfold with M=1 proof (verification round-trip).
+    #[test]
+    fn test_merge_and_verify_sumfold_m1() {
+        use ark_bn254::{Bn254, Fr};
+        use subroutines::MultilinearKzgPCS;
+
+        let config = Config::new(0, 10, GateType::Vanilla, 0);
+
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
+
+        let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
+            .expect("circuits_to_sumcheck failed");
+        assert_eq!(instances.len(), 1);
+
+        let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
+        let (_folded, proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
+
+        // Verify the M=1 proof
+        let v_total = merge_and_verify_sumfold(vec![proof])
+            .expect("merge_and_verify_sumfold with M=1 should succeed");
+
+        println!("M=1 verification passed: v_total={:?}", v_total);
     }
 }

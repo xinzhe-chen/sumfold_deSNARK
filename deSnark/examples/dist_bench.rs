@@ -90,6 +90,7 @@ fn main() {
         let mut total_proof_bytes = 0usize;
         let mut total_comm_sent = 0usize;
         let mut total_comm_recv = 0usize;
+        let mut successful_reps = 0usize;
 
         for rep in 0..cli.repetitions {
             Net::reset_stats();
@@ -109,6 +110,8 @@ fn main() {
                     if let Some(ref p) = proof {
                         total_proof_bytes += p.proof_size_bytes();
                     }
+
+                    successful_reps += 1;
 
                     if Net::am_master() {
                         eprintln!(
@@ -138,9 +141,9 @@ fn main() {
             }
         }
 
-        // Output averaged CSV line (master only)
-        if Net::am_master() {
-            let r = cli.repetitions as f64;
+        // Output averaged CSV line (master only); skip if all reps failed
+        if Net::am_master() && successful_reps > 0 {
+            let r = successful_reps as f64;
             println!(
                 "{},{},{},{:.3},{:.3},{:.3},{},{},{}",
                 nv,
@@ -149,10 +152,12 @@ fn main() {
                 total_setup_ms / r,
                 total_prover_ms / r,
                 total_verifier_ms / r,
-                total_proof_bytes / cli.repetitions,
-                total_comm_sent / cli.repetitions,
-                total_comm_recv / cli.repetitions,
+                total_proof_bytes / successful_reps,
+                total_comm_sent / successful_reps,
+                total_comm_recv / successful_reps,
             );
+        } else if Net::am_master() {
+            eprintln!("# nv={}: all repetitions failed, skipping CSV line", nv);
         }
     }
 

@@ -253,6 +253,15 @@ pub fn verify_sum_fold<F: PrimeField>(
     transcript.append_serializable_element(b"aux info", q_aux_info)?;
     let rho: Vec<F> = transcript.get_and_append_challenge_vectors(b"sumfold rho", length)?;
 
+    // M=1 (length=0): no SumCheck rounds needed.
+    if length == 0 {
+        let subclaim = SumCheckSubClaim {
+            point: vec![],
+            expected_evaluation: sum_t,
+        };
+        return Ok((subclaim, rho));
+    }
+
     // Verify SumCheck rounds manually (prover did NOT re-append aux_info here)
     let mut verifier_state = IOPVerifierState::verifier_init(q_aux_info);
     for i in 0..length {
@@ -285,6 +294,15 @@ pub fn verify_sum_fold_with_transcript<F: PrimeField>(
 
     transcript.append_serializable_element(b"aux info", q_aux_info)?;
     let rho: Vec<F> = transcript.get_and_append_challenge_vectors(b"sumfold rho", length)?;
+
+    // M=1 (length=0): no SumCheck rounds needed.
+    if length == 0 {
+        let subclaim = SumCheckSubClaim {
+            point: vec![],
+            expected_evaluation: sum_t,
+        };
+        return Ok((subclaim, rho));
+    }
 
     let mut verifier_state = IOPVerifierState::verifier_init(q_aux_info);
     for i in 0..length {
@@ -473,6 +491,19 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         transcript.append_serializable_element(b"aux info", &q_aux_info)?;
         let rho: Vec<F> = transcript.get_and_append_challenge_vectors(b"sumfold rho", length)?;
+
+        // M=1: no folding needed — return the single instance directly.
+        if m == 1 {
+            let v = sums[0];
+            let sum_t = sums[0]; // eq(empty, empty) = 1
+            let proof = IOPProof {
+                point: vec![],
+                proofs: vec![],
+            };
+            let folded_poly = polys.into_iter().next().unwrap();
+            return Ok((proof, sum_t, q_aux_info, folded_poly, v));
+        }
+
         tracing::debug!("[sum_fold v1] rho = {:?}", rho);
         tracing::debug!("[sum_fold v1] input sums = {:?}", sums);
         let eq_poly = EqPolynomial::new(rho.clone());
@@ -769,6 +800,19 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         transcript.append_serializable_element(b"aux info", &q_aux_info)?;
         let rho: Vec<F> = transcript.get_and_append_challenge_vectors(b"sumfold rho", length)?;
+
+        // M=1: no folding needed — return the single instance directly.
+        if m == 1 {
+            let v = sums[0];
+            let sum_t = sums[0]; // eq(empty, empty) = 1
+            let proof = IOPProof {
+                point: vec![],
+                proofs: vec![],
+            };
+            let folded_poly = polys.into_iter().next().unwrap();
+            return Ok((proof, sum_t, q_aux_info, folded_poly, v));
+        }
+
         tracing::debug!("[sum_fold v2] rho = {:?}", rho);
         let eq_poly = EqPolynomial::new(rho.clone());
         let eq_xr_poly = build_eq_x_r(&rho)?;
@@ -1096,6 +1140,19 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
         transcript.append_serializable_element(b"aux info", &q_aux_info)?;
         let rho: Vec<F> = transcript.get_and_append_challenge_vectors(b"sumfold rho", length)?;
+
+        // M=1: no folding needed — return the single instance directly.
+        if m == 1 {
+            let v = sums[0];
+            let sum_t = sums[0]; // eq(empty, empty) = 1
+            let proof = IOPProof {
+                point: vec![],
+                proofs: vec![],
+            };
+            let folded_poly = polys.into_iter().next().unwrap();
+            return Ok((proof, sum_t, q_aux_info, folded_poly, v));
+        }
+
         tracing::debug!("[sum_fold v3] rho = {:?}", rho);
         let eq_poly = EqPolynomial::new(rho.clone());
         let eq_xr_poly = build_eq_x_r(&rho)?;
