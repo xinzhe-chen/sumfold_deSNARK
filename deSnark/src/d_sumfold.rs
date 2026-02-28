@@ -332,8 +332,7 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
                         acc[0][b & bucket_mask] += buf.iter().map(|(eval, _)| eval).product::<F>();
                         acc[1..].iter_mut().for_each(|acc| {
                             buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                            acc[b & bucket_mask] +=
-                                buf.iter().map(|(eval, _)| eval).product::<F>();
+                            acc[b & bucket_mask] += buf.iter().map(|(eval, _)| eval).product::<F>();
                         });
                         (buf, acc)
                     },

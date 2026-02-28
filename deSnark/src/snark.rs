@@ -13,13 +13,13 @@ use ark_ff::PrimeField;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{cfg_into_iter, rand::Rng, test_rng, time::Instant};
-#[cfg(feature = "parallel")]
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 use hyperplonk::{
     prelude::{build_f, eval_f},
     HyperPlonkSNARK,
 };
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::Arc;
 use subroutines::{
     pcs::PolynomialCommitmentScheme,
@@ -1469,8 +1469,8 @@ mod tests {
         assert_eq!(instances[0].sum, Fr::from(0u64));
 
         let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
-        let (folded, proof) =
-            prove_sumfold(instances, &mut transcript).expect("prove_sumfold with M=1 should succeed");
+        let (folded, proof) = prove_sumfold(instances, &mut transcript)
+            .expect("prove_sumfold with M=1 should succeed");
 
         // M=1: 0 rounds, folded poly is the original
         assert_eq!(proof.proof.proofs.len(), 0);
@@ -1480,10 +1480,7 @@ mod tests {
             folded.poly.aux_info.num_variables,
             config.log_num_constraints - config.log_num_parties
         );
-        println!(
-            "M=1 test passed: v={:?}, sum_t={:?}",
-            proof.v, proof.sum_t
-        );
+        println!("M=1 test passed: v={:?}, sum_t={:?}", proof.v, proof.sum_t);
     }
 
     /// Test merge_and_verify_sumfold with M=1 proof (verification round-trip).

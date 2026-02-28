@@ -946,60 +946,59 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
 
             products_list.iter().for_each(|(coefficient, products)| {
                 let bucket_mask = (1 << (length - round - 1)) - 1;
-                let mut sum =
-                    cfg_into_iter!(0..1 << (compose_nv - round - 1))
-                        .fold(
-                            || {
-                                (
-                                    vec![(F::zero(), F::zero()); products.len()],
-                                    vec![
-                                        vec![F::zero(); 1 << (length - round - 1)];
-                                        products.len() + 2
-                                    ],
-                                )
-                            },
-                            |(mut buf, mut acc), b| {
-                                buf.iter_mut().zip(products.iter()).for_each(
-                                    |((eval, step), f)| {
-                                        let table = &compose_mle_evals[*f];
-                                        *eval = table[b << 1];
-                                        *step = table[(b << 1) + 1] - table[b << 1];
-                                    },
-                                );
-                                acc[0][b & bucket_mask] +=
-                                    buf.iter().map(|(eval, _)| eval).product::<F>();
-                                acc[1..].iter_mut().for_each(|acc| {
-                                    buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
-                                    acc[b & bucket_mask] +=
-                                        buf.iter().map(|(eval, _)| eval).product::<F>();
+                let mut sum = cfg_into_iter!(0..1 << (compose_nv - round - 1))
+                    .fold(
+                        || {
+                            (
+                                vec![(F::zero(), F::zero()); products.len()],
+                                vec![
+                                    vec![F::zero(); 1 << (length - round - 1)];
+                                    products.len() + 2
+                                ],
+                            )
+                        },
+                        |(mut buf, mut acc), b| {
+                            buf.iter_mut()
+                                .zip(products.iter())
+                                .for_each(|((eval, step), f)| {
+                                    let table = &compose_mle_evals[*f];
+                                    *eval = table[b << 1];
+                                    *step = table[(b << 1) + 1] - table[b << 1];
                                 });
-                                (buf, acc)
-                            },
-                        )
-                        .map(|(_, partial)| {
-                            let partial_sum: Vec<F> = eq_sum[..partial.len()]
-                                .iter()
-                                .zip(partial.iter())
-                                .map(|(eq_row, partial_row)| {
-                                    assert_eq!(eq_row.len(), partial_row.len());
-                                    eq_row
-                                        .iter()
-                                        .zip(partial_row)
-                                        .map(|(a, b)| *a * *b)
-                                        .sum::<F>()
-                                })
-                                .collect();
-                            partial_sum
-                        })
-                        .reduce(
-                            || vec![F::zero(); products.len() + 2],
-                            |mut sum, partial_sum| {
-                                sum.iter_mut()
-                                    .zip(partial_sum.iter())
-                                    .for_each(|(sum, partial_sum)| *sum += partial_sum);
-                                sum
-                            },
-                        );
+                            acc[0][b & bucket_mask] +=
+                                buf.iter().map(|(eval, _)| eval).product::<F>();
+                            acc[1..].iter_mut().for_each(|acc| {
+                                buf.iter_mut().for_each(|(eval, step)| *eval += step as &_);
+                                acc[b & bucket_mask] +=
+                                    buf.iter().map(|(eval, _)| eval).product::<F>();
+                            });
+                            (buf, acc)
+                        },
+                    )
+                    .map(|(_, partial)| {
+                        let partial_sum: Vec<F> = eq_sum[..partial.len()]
+                            .iter()
+                            .zip(partial.iter())
+                            .map(|(eq_row, partial_row)| {
+                                assert_eq!(eq_row.len(), partial_row.len());
+                                eq_row
+                                    .iter()
+                                    .zip(partial_row)
+                                    .map(|(a, b)| *a * *b)
+                                    .sum::<F>()
+                            })
+                            .collect();
+                        partial_sum
+                    })
+                    .reduce(
+                        || vec![F::zero(); products.len() + 2],
+                        |mut sum, partial_sum| {
+                            sum.iter_mut()
+                                .zip(partial_sum.iter())
+                                .for_each(|(sum, partial_sum)| *sum += partial_sum);
+                            sum
+                        },
+                    );
                 sum.iter_mut().for_each(|sum| *sum *= coefficient);
 
                 let extrapolation =
