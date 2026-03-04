@@ -142,7 +142,8 @@ impl Config {
     ///
     /// Instead of each party having all M instances with N/K constraints,
     /// each party gets M/K instances with FULL N constraints.
-    /// Party `party_id` gets instances `[party_id * M/K .. (party_id+1) * M/K)`.
+    /// Party `party_id` gets instances `[party_id * M/K .. (party_id+1) *
+    /// M/K)`.
     ///
     /// All parties use the same deterministic seed sequence so that each
     /// party generates the correct subset of instance data.
@@ -517,13 +518,17 @@ mod tests {
         let base_selectors = &circuits[0].index.selectors;
         for circuit in &circuits {
             assert_eq!(circuit.index.params.num_constraints, 256);
-            assert!(circuit.is_satisfied(), "circuit with shared selectors must satisfy constraints");
+            assert!(
+                circuit.is_satisfied(),
+                "circuit with shared selectors must satisfy constraints"
+            );
             // Check selectors are identical (compare via Debug since field is private)
             for (j, sel) in circuit.index.selectors.iter().enumerate() {
                 assert_eq!(
                     format!("{:?}", sel),
                     format!("{:?}", base_selectors[j]),
-                    "selector {} must be shared", j
+                    "selector {} must be shared",
+                    j
                 );
             }
         }

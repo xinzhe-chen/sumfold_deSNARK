@@ -39,9 +39,9 @@ use std::{
     thread,
     time::Duration,
 };
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tracing::error;
 use tracing_subscriber::{fmt, EnvFilter};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 // ─── Peak RSS sampler (background thread, 5ms poll) ──────────────────────────
 
@@ -52,22 +52,24 @@ fn current_rss_mb() -> f64 {
         ProcessesToUpdate::Some(&[pid]),
         ProcessRefreshKind::new().with_memory(),
     );
-    sys.process(pid).map(|p| p.memory() as f64 / (1024.0 * 1024.0)).unwrap_or(0.0)
+    sys.process(pid)
+        .map(|p| p.memory() as f64 / (1024.0 * 1024.0))
+        .unwrap_or(0.0)
 }
 
 struct PeakSampler {
     stop_flag: Arc<AtomicBool>,
-    peak_mb:   Arc<Mutex<f64>>,
-    handle:    Option<thread::JoinHandle<()>>,
+    peak_mb: Arc<Mutex<f64>>,
+    handle: Option<thread::JoinHandle<()>>,
 }
 
 impl PeakSampler {
     fn start(initial_rss: f64) -> Self {
         let stop_flag = Arc::new(AtomicBool::new(false));
-        let peak_mb   = Arc::new(Mutex::new(initial_rss));
+        let peak_mb = Arc::new(Mutex::new(initial_rss));
         let flag = stop_flag.clone();
         let peak = peak_mb.clone();
-        let pid  = Pid::from_u32(std::process::id());
+        let pid = Pid::from_u32(std::process::id());
         let handle = thread::spawn(move || {
             let mut sys = System::new();
             while !flag.load(Ordering::Relaxed) {
@@ -78,16 +80,24 @@ impl PeakSampler {
                 if let Some(p) = sys.process(pid) {
                     let mb = p.memory() as f64 / (1024.0 * 1024.0);
                     let mut g = peak.lock().unwrap();
-                    if mb > *g { *g = mb; }
+                    if mb > *g {
+                        *g = mb;
+                    }
                 }
                 thread::sleep(Duration::from_millis(5));
             }
         });
-        Self { stop_flag, peak_mb, handle: Some(handle) }
+        Self {
+            stop_flag,
+            peak_mb,
+            handle: Some(handle),
+        }
     }
     fn stop(mut self) -> f64 {
         self.stop_flag.store(true, Ordering::Relaxed);
-        if let Some(h) = self.handle.take() { h.join().ok(); }
+        if let Some(h) = self.handle.take() {
+            h.join().ok();
+        }
         (*self.peak_mb.lock().unwrap()).max(current_rss_mb())
     }
 }
@@ -157,7 +167,10 @@ fn main() {
                 }
             },
             Err(e) => {
-                error!("❌ [Party {}] warmup dist_prove failed at nv={}: {}", cli.party_id, nv, e);
+                error!(
+                    "❌ [Party {}] warmup dist_prove failed at nv={}: {}",
+                    cli.party_id, nv, e
+                );
                 continue; // skip this nv
             },
         }
@@ -200,7 +213,9 @@ fn main() {
                     total_sumcheck_ms += timings.sumcheck_ms;
                     total_fold_ms += timings.fold_ms;
                     total_multi_open_ms += timings.multi_open_ms;
-                    if peak_rss_mb > max_peak_rss_mb { max_peak_rss_mb = peak_rss_mb; }
+                    if peak_rss_mb > max_peak_rss_mb {
+                        max_peak_rss_mb = peak_rss_mb;
+                    }
 
                     if let Some(ref p) = proof {
                         total_proof_bytes += p.proof_size_bytes();
@@ -209,7 +224,11 @@ fn main() {
                     successful_reps += 1;
 
                     if Net::am_master() {
-                        let avg_cpu = if timings.prove_wall_ms > 0.0 { timings.prove_cpu_ms / timings.prove_wall_ms * 100.0 } else { 0.0 };
+                        let avg_cpu = if timings.prove_wall_ms > 0.0 {
+                            timings.prove_cpu_ms / timings.prove_wall_ms * 100.0
+                        } else {
+                            0.0
+                        };
                         eprintln!(
                             "#   rep {}/{}: prove={:.1}ms, verify={:.1}ms, proof={}B, sent={}B, recv={}B, cpu={:.0}%, rss={:.1}MB",
                             rep + 1,
@@ -240,13 +259,18 @@ fn main() {
         }
 
         // Output averaged CSV line (master only); skip if all reps failed
-        // prover_ms, verifier_ms, comm_sent/recv are all per-instance averages (÷ M ÷ reps)
-        // so they are directly comparable to HyperPianist (which always proves 1 instance).
+        // prover_ms, verifier_ms, comm_sent/recv are all per-instance averages (÷ M ÷
+        // reps) so they are directly comparable to HyperPianist (which always
+        // proves 1 instance).
         if Net::am_master() && successful_reps > 0 {
             let r = successful_reps as f64;
             let m = config.num_instances() as f64;
             let m_usize = config.num_instances();
-            let avg_cpu_pct = if total_wall_ms > 0.0 { total_cpu_ms / total_wall_ms * 100.0 } else { 0.0 };
+            let avg_cpu_pct = if total_wall_ms > 0.0 {
+                total_cpu_ms / total_wall_ms * 100.0
+            } else {
+                0.0
+            };
             println!(
                 "{},{},{},{:.3},{:.3},{:.3},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3}",
                 nv,

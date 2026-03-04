@@ -678,9 +678,11 @@ pub fn verify_network() -> Result<()> {
 /// d_sumfold/d_prove/d_open operate with `party_vars = 0`.
 ///
 /// # Arguments
-/// * `polys` - This party's virtual polynomials (M for constraint-dist, M/K for instance-dist)
+/// * `polys` - This party's virtual polynomials (M for constraint-dist, M/K for
+///   instance-dist)
 /// * `sums`  - This party's claimed sums
-/// * `inst_dist` - Instance distribution config (None for constraint distribution)
+/// * `inst_dist` - Instance distribution config (None for constraint
+///   distribution)
 ///
 /// # Returns
 /// * `Option<Proof>` - Combined proof (`Some` on master, `None` on workers)
@@ -706,8 +708,7 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
             .zip(sums)
             .map(|(poly, sum)| SumCheckInstance::new(poly, sum))
             .collect();
-        let (folded_instance, sumfold_proof) =
-            prove_sumfold(instances, &mut transcript)?;
+        let (folded_instance, sumfold_proof) = prove_sumfold(instances, &mut transcript)?;
         let sumfold_ms = sumfold_timer.elapsed().as_secs_f64() * 1000.0;
 
         #[cfg(debug_assertions)]
@@ -720,12 +721,11 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
         // d_prove with K=1 appends aux_info then runs num_vars rounds;
         // prove() does the same, so the transcript protocol matches.
         let sumcheck_timer = Instant::now();
-        let hp_proof =
-            <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::prove(
-                &folded_instance.poly,
-                &mut transcript,
-            )
-            .map_err(|e| DeSnarkError::HyperPlonkError(format!("prove failed: {e}")))?;
+        let hp_proof = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::prove(
+            &folded_instance.poly,
+            &mut transcript,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("prove failed: {e}")))?;
         let sumcheck_ms = sumcheck_timer.elapsed().as_secs_f64() * 1000.0;
 
         // Concatenate sumfold + HyperPianist into one big proof
@@ -784,18 +784,23 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     // Phase 3: HyperPianist distributed SumCheck (operates on folded instance)
     // With instance distribution, party_vars = 0 (no constraint partitioning).
     let sumcheck_timer = Instant::now();
-    let party_vars = if inst_dist.is_some() { 0 } else { ark_std::log2(Net::n_parties()) as usize };
+    let party_vars = if inst_dist.is_some() {
+        0
+    } else {
+        ark_std::log2(Net::n_parties()) as usize
+    };
     let transcript_opt = if Net::am_master() {
         Some(&mut transcript)
     } else {
         None
     };
-    let hp_proof = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove_with_party_vars::<Net>(
-        &folded_instance.poly,
-        transcript_opt,
-        party_vars,
-    )
-    .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_prove failed: {e}")))?;
+    let hp_proof =
+        <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove_with_party_vars::<Net>(
+            &folded_instance.poly,
+            transcript_opt,
+            party_vars,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_prove failed: {e}")))?;
     let sumcheck_ms = sumcheck_timer.elapsed().as_secs_f64() * 1000.0;
 
     // Concatenate sumfold + HyperPianist into one big proof
@@ -1110,7 +1115,8 @@ pub fn dist_prove<E: Pairing>(
     let srs = setup::<E, MultilinearKzgPCS<E>>(config)?;
 
     // Determine distribution mode:
-    // - Constraint distribution (default): each party gets all M instances with N/K constraints
+    // - Constraint distribution (default): each party gets all M instances with N/K
+    //   constraints
     // - K=1: fast path (no distribution)
     //
     // NOTE: Instance distribution (each party gets M/K instances with full N
@@ -1158,12 +1164,11 @@ pub fn dist_prove<E: Pairing>(
         circuits[0].index.num_variables(),
         circuits[0].index.params.num_constraints
     );
-    let (mut pk, mut vk, _duration) =
-        <PolyIOP<E::ScalarField> as HyperPlonkSNARK<E, MultilinearKzgPCS<E>>>::preprocess(
-            &circuits[0].index,
-            &srs,
-        )
-        .map_err(|e| DeSnarkError::HyperPlonkError(e.to_string()))?;
+    let (mut pk, mut vk, _duration) = <PolyIOP<E::ScalarField> as HyperPlonkSNARK<
+        E,
+        MultilinearKzgPCS<E>,
+    >>::preprocess(&circuits[0].index, &srs)
+    .map_err(|e| DeSnarkError::HyperPlonkError(e.to_string()))?;
 
     // Override PCS params: preprocess trims to log(N/K), but d_commit needs
     // log(N) because it extends local MLEs with log(K) party variables.
@@ -1190,14 +1195,17 @@ pub fn dist_prove<E: Pairing>(
     let use_standard_commit = is_single_party || use_instance_dist;
 
     // Build selector MLEs once (shared across all M instances)
-    let selector_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
-        circuits[0].index.selectors.iter()
-            .map(|s| Arc::new(DenseMultilinearExtension::from(s)))
-            .collect();
+    let selector_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> = circuits[0]
+        .index
+        .selectors
+        .iter()
+        .map(|s| Arc::new(DenseMultilinearExtension::from(s)))
+        .collect();
 
     // Commit selectors (num_sel only, NOT M × num_sel)
     let selector_commit_opts: Vec<Option<Commitment<E>>> = if use_standard_commit {
-        selector_polys.iter()
+        selector_polys
+            .iter()
             .map(|p| MultilinearKzgPCS::<E>::commit(&pk.pcs_param, p).map(Some))
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("commit selectors: {e}")))?
@@ -1227,7 +1235,7 @@ pub fn dist_prove<E: Pairing>(
         let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
         unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
         let user = usage.ru_utime.tv_sec as f64 * 1e3 + usage.ru_utime.tv_usec as f64 * 1e-3;
-        let sys  = usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 * 1e-3;
+        let sys = usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 * 1e-3;
         user + sys
     };
     let pcs_timer = Instant::now();
@@ -1262,7 +1270,8 @@ pub fn dist_prove<E: Pairing>(
             }
         } else {
             // K=1: standard commit
-            witness_polys.iter()
+            witness_polys
+                .iter()
                 .map(|p| MultilinearKzgPCS::<E>::commit(&pk.pcs_param, p).map(Some))
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|e| DeSnarkError::HyperPlonkError(format!("commit witnesses: {e}")))?
@@ -1275,7 +1284,10 @@ pub fn dist_prove<E: Pairing>(
     timings.d_commit_ms = pcs_timer.elapsed().as_secs_f64() * 1000.0;
     info!(
         "✅ PCS d_commit: {} witnesses ({} instances × {}) in {:.1}ms",
-        witness_polys.len(), num_instances, num_witnesses, timings.d_commit_ms
+        witness_polys.len(),
+        num_instances,
+        num_witnesses,
+        timings.d_commit_ms
     );
 
     // ═══════════════════════════════════════════════════════════════
@@ -1287,10 +1299,14 @@ pub fn dist_prove<E: Pairing>(
     let mut polys: Vec<VirtualPolynomial<E::ScalarField>> = Vec::with_capacity(num_instances);
     let mut sums: Vec<E::ScalarField> = Vec::with_capacity(num_instances);
     for i in 0..num_instances {
-        let witness_mles =
-            &witness_polys[i * num_witnesses..(i + 1) * num_witnesses];
-        let poly = build_f(&pk.params.gate_func, num_vars, &selector_polys, witness_mles)
-            .map_err(|e| DeSnarkError::HyperPlonkError(e.to_string()))?;
+        let witness_mles = &witness_polys[i * num_witnesses..(i + 1) * num_witnesses];
+        let poly = build_f(
+            &pk.params.gate_func,
+            num_vars,
+            &selector_polys,
+            witness_mles,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(e.to_string()))?;
         polys.push(poly);
         sums.push(E::ScalarField::from(0u64));
     }
@@ -1301,7 +1317,8 @@ pub fn dist_prove<E: Pairing>(
     // ═══════════════════════════════════════════════════════════════
     // Phase 2+3: Circuit-agnostic distributed proving (SumFold + SumCheck)
     // ═══════════════════════════════════════════════════════════════
-    let (iop_proof, sumfold_ms, sumcheck_ms) = dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(polys, sums, inst_dist_config.as_ref())?;
+    let (iop_proof, sumfold_ms, sumcheck_ms) =
+        dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(polys, sums, inst_dist_config.as_ref())?;
     timings.sumfold_ms = sumfold_ms;
     timings.sumcheck_ms = sumcheck_ms;
 
@@ -1359,18 +1376,22 @@ pub fn dist_prove<E: Pairing>(
     //     Selectors are shared: sel_j_fold(x) = sel_j(x) · (Σ_i eq(r_b,i))
     //     Witnesses are per-instance: wit_j_fold(x) = Σ_i eq(r_b,i) · wit_j^i(x)
     //
-    //     Instance-dist: use global eq weight eq_rb_vec[offset + i] for local instance i.
-    //     Each party computes a PARTIAL fold; these are additive shares of the global fold.
+    //     Instance-dist: use global eq weight eq_rb_vec[offset + i] for local
+    // instance i.     Each party computes a PARTIAL fold; these are additive
+    // shares of the global fold.
     let instance_offset = inst_dist_config.as_ref().map_or(0, |c| c.instance_offset);
 
     // Selectors are shared: scale by Σ_i eq(r_b, i) (scalar multiply)
     let eq_rb_sum: E::ScalarField = eq_rb_vec[instance_offset..instance_offset + num_instances]
-        .iter().copied().sum();
+        .iter()
+        .copied()
+        .sum();
     let folded_sel_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
         cfg_into_iter!(0..num_selectors)
             .map(|j| {
                 let poly_nv = selector_polys[j].num_vars;
-                let folded_evals: Vec<E::ScalarField> = selector_polys[j].evaluations
+                let folded_evals: Vec<E::ScalarField> = selector_polys[j]
+                    .evaluations
                     .iter()
                     .map(|&v| eq_rb_sum * v)
                     .collect();
@@ -1468,8 +1489,9 @@ pub fn dist_prove<E: Pairing>(
 
     // Aggregate local evaluations across parties to get global evaluations
     // K=1: local_evals ARE global_evals (no party dimension)
-    // Instance-dist: gather partial evals, sum directly (no eq_party weighting — party_vars=0)
-    // Constraint-dist: aggregate with eq(r_party, party_id) weights
+    // Instance-dist: gather partial evals, sum directly (no eq_party weighting —
+    // party_vars=0) Constraint-dist: aggregate with eq(r_party, party_id)
+    // weights
     let global_evals: Vec<E::ScalarField> = if is_single_party {
         local_evals
     } else if use_instance_dist {
@@ -1550,8 +1572,9 @@ pub fn dist_prove<E: Pairing>(
         .map_err(|e| DeSnarkError::HyperPlonkError(format!("multi_open: {e}")))?;
         Some(bp)
     } else if use_instance_dist {
-        // Instance distribution: party_vars=0, each party's partial fold is an additive share.
-        // KZG homomorphic property: sum of partial-fold commits = commit of full fold.
+        // Instance distribution: party_vars=0, each party's partial fold is an additive
+        // share. KZG homomorphic property: sum of partial-fold commits = commit
+        // of full fold.
         DeMkzg::<E>::d_multi_open_with_party_vars(
             &pk.pcs_param,
             all_polys,
@@ -1574,10 +1597,7 @@ pub fn dist_prove<E: Pairing>(
     timings.multi_open_ms = open_timer.elapsed().as_secs_f64() * 1000.0;
     info!(
         "✅ PCS multi_open completed in {:.1}ms ({} folded polys: {} sel + {} wit)",
-        timings.multi_open_ms,
-        folded_total,
-        num_selectors,
-        num_witnesses
+        timings.multi_open_ms, folded_total, num_selectors, num_witnesses
     );
 
     // ═══════════════════════════════════════════════════════════════
@@ -1609,7 +1629,7 @@ pub fn dist_prove<E: Pairing>(
         let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
         unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
         let user = usage.ru_utime.tv_sec as f64 * 1e3 + usage.ru_utime.tv_usec as f64 * 1e-3;
-        let sys  = usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 * 1e-3;
+        let sys = usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 * 1e-3;
         (user + sys) - prove_cpu_before
     };
     // Capture comm stats from the proving phase only (before verify)

@@ -69,9 +69,7 @@ impl<F: PrimeField> MockCircuit<F> {
                 (0..num_witnesses).map(|_| F::rand(rng)).collect()
             } else {
                 let row = cs_counter % portion_len;
-                (0..num_witnesses)
-                    .map(|i| witnesses[i].0[row])
-                    .collect()
+                (0..num_witnesses).map(|i| witnesses[i].0[row]).collect()
             };
             let mut last_selector = F::zero();
             for (index, (coeff, q, wit)) in gate.gates.iter().enumerate() {
@@ -122,10 +120,8 @@ impl<F: PrimeField> MockCircuit<F> {
         // argument (using SumFold for gate constraints only), and HyperPlonk's
         // standard path requires the permutation to be valid w.r.t. the copy
         // constraint structure. Identity is always valid.
-        let permutation = identity_permutation(
-            (log2(num_constraints) + log2(num_witnesses)) as usize,
-            1,
-        );
+        let permutation =
+            identity_permutation((log2(num_constraints) + log2(num_witnesses)) as usize, 1);
 
         let index = HyperPlonkIndex {
             params,
@@ -142,11 +138,11 @@ impl<F: PrimeField> MockCircuit<F> {
 
     /// Generate a mock circuit that **reuses pre-built selectors** and only
     /// generates fresh witnesses. The output wire (last witness column used in
-    /// a term with a single witness and a selector) is computed as the dependent
-    /// variable so the constraint is satisfied.
+    /// a term with a single witness and a selector) is computed as the
+    /// dependent variable so the constraint is satisfied.
     ///
-    /// For vanilla plonk (`q_L w_1 + q_R w_2 + q_O w_3 + q_M w_1 w_2 + q_C = 0`):
-    /// `w_3 = -(q_L w_1 + q_R w_2 + q_M w_1 w_2 + q_C) / q_O`.
+    /// For vanilla plonk (`q_L w_1 + q_R w_2 + q_O w_3 + q_M w_1 w_2 + q_C =
+    /// 0`): `w_3 = -(q_L w_1 + q_R w_2 + q_M w_1 w_2 + q_C) / q_O`.
     pub fn new_with_shared_selectors(
         num_constraints: usize,
         gate: &CustomizedGates,
@@ -170,9 +166,11 @@ impl<F: PrimeField> MockCircuit<F> {
                     // Check that this witness column does NOT appear in any
                     // higher-degree term (to guarantee it's linear and solvable).
                     let wid = ws[0];
-                    let appears_elsewhere = gate.gates.iter().enumerate().any(|(i2, (_, _, ws2))| {
-                        i2 != idx && ws2.contains(&wid)
-                    });
+                    let appears_elsewhere = gate
+                        .gates
+                        .iter()
+                        .enumerate()
+                        .any(|(i2, (_, _, ws2))| i2 != idx && ws2.contains(&wid));
                     if !appears_elsewhere {
                         return Some((idx, q.unwrap(), wid));
                     }
@@ -219,7 +217,7 @@ impl<F: PrimeField> MockCircuit<F> {
             }
 
             // Solve: coeff_out * q_out[row] * w_out = -rest_sum
-            let (out_coeff, _, _) = &gate.gates[out_term_idx];
+            let (out_coeff, ..) = &gate.gates[out_term_idx];
             let c = if *out_coeff < 0 {
                 -F::from((-out_coeff) as u64)
             } else {
@@ -248,10 +246,8 @@ impl<F: PrimeField> MockCircuit<F> {
             gate_func: gate.clone(),
         };
 
-        let permutation = identity_permutation(
-            (log2(num_constraints) + log2(num_witnesses)) as usize,
-            1,
-        );
+        let permutation =
+            identity_permutation((log2(num_constraints) + log2(num_witnesses)) as usize, 1);
 
         let index = HyperPlonkIndex {
             params,

@@ -407,8 +407,9 @@ fn d_open_internal<E: Pairing>(
         let msm_timer = start_timer!(|| format!("msm of size {} at round {}", cur_dim, i));
         let start_idx = if m == 0 { 0 } else { sub_prover_id * cur_dim };
         let end_idx = start_idx + cur_dim;
-        sub_qs_comms
-            .push(E::G1MSM::msm_unchecked_par_auto(&gi.evals[start_idx..end_idx], &q[..cur_dim]).into());
+        sub_qs_comms.push(
+            E::G1MSM::msm_unchecked_par_auto(&gi.evals[start_idx..end_idx], &q[..cur_dim]).into(),
+        );
         end_timer!(msm_timer);
 
         end_timer!(ith_round);

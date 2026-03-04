@@ -66,8 +66,6 @@ where
     let k = polynomials.len();
     let ell = log2(k) as usize;
 
-
-
     // Append eval points and evaluations to transcript (master only).
     // This matches the non-distributed batch_verify_internal which also
     // appends them before generating challenge t, ensuring Fiat-Shamir
@@ -239,7 +237,12 @@ where
     // this by splitting the open into local rounds + master-aggregated
     // party-dimension rounds.
     let step = start_timer!(|| "pcs open g'");
-    let g_prime_proof_opt = super::deMkzg::DeMkzg::<E>::d_open_with_party_vars(prover_param, &g_prime, &a2, num_party_vars)?;
+    let g_prime_proof_opt = super::deMkzg::DeMkzg::<E>::d_open_with_party_vars(
+        prover_param,
+        &g_prime,
+        &a2,
+        num_party_vars,
+    )?;
     end_timer!(step);
 
     end_timer!(open_timer);
