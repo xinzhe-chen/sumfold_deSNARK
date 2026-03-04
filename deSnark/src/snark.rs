@@ -104,9 +104,13 @@ pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::
         .map_err(|e| DeSnarkError::InvalidParameters(format!("SRS generation failed: {e}")))?;
     info!("✅ SRS generated successfully");
 
-    // Save to cache file
+    // Save to cache file — only master writes to avoid file race among K parties.
+    // All parties generate the same deterministic SRS (test_rng), so only one
+    // needs to persist it.
     if let Some(ref path) = config.srs_path {
-        save_srs::<E, PCS>(&srs, path);
+        if Net::am_master() {
+            save_srs::<E, PCS>(&srs, path);
+        }
     }
 
     Ok(srs)
@@ -115,6 +119,9 @@ pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::
 /// Try to load SRS from file and validate it is large enough.
 /// Returns `None` if file doesn't exist, deserialization fails, or SRS is too
 /// small.
+///
+/// Uses a shared file lock to avoid reading a file that another party is
+/// still writing.  Falls back gracefully if locking is unavailable.
 fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
     path: &str,
     supported_log_size: usize,
@@ -126,15 +133,30 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
             return None;
         },
     };
-    let mut reader = std::io::BufReader::new(file);
+
+    // Acquire a shared (read) lock — blocks until any exclusive (write)
+    // lock held by save_srs is released, preventing reads of partial writes.
+    use std::os::unix::io::AsRawFd;
+    let fd = file.as_raw_fd();
+    let lock_ok = unsafe { libc::flock(fd, libc::LOCK_SH) } == 0;
+    if !lock_ok {
+        warn!("SRS cache: could not acquire shared lock on {}, skipping", path);
+        return None;
+    }
+
+    let mut reader = std::io::BufReader::new(&file);
     let srs: PCS::SRS = match CanonicalDeserialize::deserialize_uncompressed_unchecked(&mut reader)
     {
         Ok(s) => s,
         Err(e) => {
             warn!("SRS cache corrupted ({}): {}", path, e);
+            unsafe { libc::flock(fd, libc::LOCK_UN); }
             return None;
         },
     };
+
+    // Release shared lock
+    unsafe { libc::flock(fd, libc::LOCK_UN); }
 
     // Validate: try trimming to the required size
     match PCS::trim(&srs, None, Some(supported_log_size)) {
@@ -152,20 +174,37 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
     }
 }
 
-/// Save SRS to file. Logs a warning on failure but does not propagate the
-/// error.
+/// Save SRS to file with an exclusive lock to prevent concurrent readers
+/// from accessing partial data.  Logs a warning on failure.
 fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
-    match std::fs::File::create(path) {
+    // Write to a temporary file first, then atomically rename.
+    // This prevents any reader from seeing partial data.
+    let tmp_path = format!("{}.tmp.{}", path, std::process::id());
+    match std::fs::File::create(&tmp_path) {
         Ok(file) => {
+            // Exclusive lock while writing
+            use std::os::unix::io::AsRawFd;
+            let fd = file.as_raw_fd();
+            unsafe { libc::flock(fd, libc::LOCK_EX); }
+
             let mut writer = std::io::BufWriter::new(file);
             if let Err(e) = srs.serialize_uncompressed(&mut writer) {
-                warn!("Failed to write SRS cache ({}): {}", path, e);
+                warn!("Failed to write SRS cache ({}): {}", tmp_path, e);
+                let _ = std::fs::remove_file(&tmp_path);
+                return;
+            }
+            drop(writer); // flush + release lock
+
+            // Atomic rename: readers either see the old file or the new one
+            if let Err(e) = std::fs::rename(&tmp_path, path) {
+                warn!("Failed to rename SRS cache {} → {}: {}", tmp_path, path, e);
+                let _ = std::fs::remove_file(&tmp_path);
             } else {
                 info!("✅ SRS cached to {}", path);
             }
         },
         Err(e) => {
-            warn!("Failed to create SRS cache file ({}): {}", path, e);
+            warn!("Failed to create SRS cache file ({}): {}", tmp_path, e);
         },
     }
 }

@@ -324,25 +324,28 @@ impl Connections {
                 let to_addr = self.peers[to_id].addr;
                 debug!("Contacting {}", to_id);
                 let mut stream = {
-                    let std_stream = loop {
-                        let mut ms_waited = 0;
-                        match std::net::TcpStream::connect(to_addr) {
-                            Ok(s) => break s,
-                            Err(e) => match e.kind() {
-                                std::io::ErrorKind::ConnectionRefused
-                                | std::io::ErrorKind::ConnectionReset => {
-                                    ms_waited += 10;
-                                    std::thread::sleep(std::time::Duration::from_millis(10));
-                                    if ms_waited % 3_000 == 0 {
-                                        debug!("Still waiting");
-                                    } else if ms_waited > 30_000 {
-                                        panic!("Could not find peer in 30s");
-                                    }
+                    let std_stream = {
+                        let mut ms_waited = 0u64;
+                        loop {
+                            match std::net::TcpStream::connect(to_addr) {
+                                Ok(s) => break s,
+                                Err(e) => match e.kind() {
+                                    std::io::ErrorKind::ConnectionRefused
+                                    | std::io::ErrorKind::ConnectionReset => {
+                                        ms_waited += 10;
+                                        std::thread::sleep(std::time::Duration::from_millis(10));
+                                        if ms_waited % 3_000 == 0 {
+                                            debug!("Still waiting for peer {} ({}ms)", to_id, ms_waited);
+                                        }
+                                        if ms_waited > 30_000 {
+                                            panic!("Could not find peer {} in 30s", to_id);
+                                        }
+                                    },
+                                    _ => {
+                                        panic!("Error during FieldChannel::new: {}", e);
+                                    },
                                 },
-                                _ => {
-                                    panic!("Error during FieldChannel::new: {}", e);
-                                },
-                            },
+                            }
                         }
                     };
                     std_stream.set_nonblocking(true).unwrap();
