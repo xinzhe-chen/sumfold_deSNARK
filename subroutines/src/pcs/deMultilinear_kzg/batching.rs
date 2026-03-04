@@ -24,7 +24,9 @@ use transcript::IOPTranscript;
 use deNetwork::{DeMultiNet as Net, DeNet, DeSerNet};
 
 #[cfg(feature = "parallel")]
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
 use crate::pcs::multilinear_kzg::batching::BatchProof;
 
@@ -45,6 +47,7 @@ pub(crate) fn d_multi_open_internal<E, PCS>(
     points: &[PCS::Point],
     evals: &[PCS::Evaluation],
     transcript: &mut IOPTranscript<E::ScalarField>,
+    party_vars_override: Option<usize>,
 ) -> Result<Option<BatchProof<E, PCS>>, PCSError>
 where
     E: Pairing,
@@ -62,6 +65,8 @@ where
     let num_var = polynomials[0].num_vars;
     let k = polynomials.len();
     let ell = log2(k) as usize;
+
+
 
     // Append eval points and evaluations to transcript (master only).
     // This matches the non-distributed batch_verify_internal which also
@@ -132,7 +137,7 @@ where
 
     // Merge polynomials that share the same opening point
     let (mut merged_tilde_gs, merged_tilde_gs_copy): (Vec<_>, Vec<_>) = point_ids
-        .iter()
+        .par_iter()
         .map(|ids| {
             let mut merged = Arc::new(DenseMultilinearExtension::zero());
             for &idx in ids {
@@ -145,14 +150,14 @@ where
 
     // Step 4: Build tilde_eq_i adjusted for party index
     let timer = start_timer!(|| "compute tilde eq");
-    let num_party_vars = Net::n_parties().log_2();
+    let num_party_vars = party_vars_override.unwrap_or_else(|| Net::n_parties().log_2());
     let index_vec: Vec<E::ScalarField> = bit_decompose(Net::party_id() as u64, num_party_vars)
         .into_iter()
         .map(|x| E::ScalarField::from(x))
         .collect();
 
     let tilde_eqs: Vec<_> = deduped_points
-        .iter()
+        .par_iter()
         .map(|point| {
             let coeff = eq_eval(&point[num_var..], &index_vec).unwrap();
             build_eq_x_r_with_coeff(&point[..num_var], &coeff).unwrap()
@@ -180,9 +185,10 @@ where
             None
         };
 
-        match <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove::<Net>(
+        match <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove_with_party_vars::<Net>(
             &sum_check_vp,
             transcript_opt,
+            num_party_vars,
         ) {
             Ok(p) => p,
             Err(_e) => {
@@ -233,7 +239,7 @@ where
     // this by splitting the open into local rounds + master-aggregated
     // party-dimension rounds.
     let step = start_timer!(|| "pcs open g'");
-    let g_prime_proof_opt = super::deMkzg::DeMkzg::<E>::d_open(prover_param, &g_prime, &a2)?;
+    let g_prime_proof_opt = super::deMkzg::DeMkzg::<E>::d_open_with_party_vars(prover_param, &g_prime, &a2, num_party_vars)?;
     end_timer!(step);
 
     end_timer!(open_timer);

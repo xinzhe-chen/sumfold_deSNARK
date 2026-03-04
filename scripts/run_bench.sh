@@ -102,7 +102,7 @@ echo -e "${GREEN}Running master...${NC}" >&2
     2> "$LOG_DIR/p0.log" > "$RAW_FILE"
 
 # Extract only CSV lines (header + data rows) from the raw output
-CSV_HEADER="nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv"
+CSV_HEADER="nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb"
 echo "$CSV_HEADER" | tee "$CSV_FILE"
 grep '^[0-9]\+,' "$RAW_FILE" | tee -a "$CSV_FILE"
 

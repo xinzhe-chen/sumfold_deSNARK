@@ -23,6 +23,7 @@ subroutines = { path = "../subroutines", features = ["distributed"] }
 transcript = { path = "../transcript" }
 util = { path = "../util" }
 deNetwork = { path = "../deNetwork" }
+libc = "0.2"
 
 [dev-dependencies]
 ark-bls12-381 = { version = "0.4.0", default-features = false, features = [
@@ -31,6 +32,7 @@ ark-bls12-381 = { version = "0.4.0", default-features = false, features = [
 ark-bn254 = { version = "0.4.0", features = ["asm"] }
 env_logger = "0.11"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+sysinfo = "0.31"
 
 [[bench]]
 name = "bench"

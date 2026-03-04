@@ -157,6 +157,22 @@ pub trait SumCheck<F: PrimeField> {
         poly: &Self::VirtualPolynomial,
         transcript: Option<&mut Self::Transcript>,
     ) -> Result<Option<Self::SumCheckProof>, PolyIOPErrors>;
+
+    /// Distributed SumCheck with explicit party variable count.
+    ///
+    /// Like [`d_prove`], but allows overriding the number of party
+    /// variables (normally `log₂(K)`). When `party_vars = 0`, all rounds
+    /// are distributed Phase 1 rounds with no master-only Phase 2.
+    ///
+    /// This is used for instance-level distribution where each party
+    /// holds a partial polynomial (partial sum of folded instances)
+    /// rather than a constraint partition.
+    #[cfg(feature = "distributed")]
+    fn d_prove_with_party_vars<Net: DeSerNet>(
+        poly: &Self::VirtualPolynomial,
+        transcript: Option<&mut Self::Transcript>,
+        party_vars: usize,
+    ) -> Result<Option<Self::SumCheckProof>, PolyIOPErrors>;
 }
 
 /// Trait for sum check protocol prover side APIs.
@@ -1173,6 +1189,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         let compose_nv = length + num_vars;
         let max_degree = polys[0].aux_info.max_degree + 1;
         let products_list = polys[0].products.clone();
+        let folded_aux_info = polys[0].aux_info.clone();
 
         // Extract eval slices to avoid capturing non-Sync VirtualPolynomial
         let all_evals: Vec<Vec<&[F]>> = (0..m)
@@ -1195,6 +1212,13 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
                 f
             })
             .collect();
+
+        // Free original polynomial data — aux_info and products_list
+        // were already cloned above; only the heavy MLE evaluations
+        // remain in `polys`, and those have been copied into
+        // `compose_mle_evals`.
+        drop(all_evals);
+        drop(polys);
 
         // Precompute barycentric weights for extrapolation
         let extrapolation_aux: Vec<(Vec<F>, Vec<F>)> = (1..max_degree)
@@ -1381,8 +1405,8 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         }
 
         let folded_poly = VirtualPolynomial {
-            aux_info: polys[0].aux_info.clone(),
-            products: polys[0].products.clone(),
+            aux_info: folded_aux_info,
+            products: products_list.clone(),
             flattened_ml_extensions: new_mle,
             raw_pointers_lookup_table: hm,
         };
@@ -1408,14 +1432,39 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
     ///
     /// Ported from HyperPianist:
     /// .agent/HyperPianist/subroutines/src/poly_iop/sum_check/mod.rs
+    /// Default distributed prove: uses `log₂(K)` party variables.
     #[cfg(feature = "distributed")]
-    #[instrument(level = "debug", skip_all, name = "d_prove")]
     fn d_prove<Net: DeSerNet>(
         poly: &Self::VirtualPolynomial,
-        mut transcript: Option<&mut Self::Transcript>,
+        transcript: Option<&mut Self::Transcript>,
     ) -> Result<Option<Self::SumCheckProof>, PolyIOPErrors> {
         let num_party_vars = log2(Net::n_parties()) as usize;
+        Self::d_prove_with_party_vars::<Net>(poly, transcript, num_party_vars)
+    }
 
+    /// Distributed SumCheck prove with explicit party variable count.
+    ///
+    /// Phase 1 (all parties): Each party runs `num_vars` rounds of local
+    /// sumcheck on its own polynomial shard. After each round, prover
+    /// messages are sent to the master who aggregates them, then broadcasts
+    /// the challenge back.
+    ///
+    /// Phase 2 (master only, if `party_vars > 0`): After Phase 1, each party
+    /// evaluates its MLEs to scalars. The master assembles these into tiny
+    /// MLEs (one evaluation per party) and runs `party_vars` additional local
+    /// sumcheck rounds.
+    ///
+    /// When `party_vars = 0` (instance-level distribution), there is no
+    /// Phase 2 — all rounds are distributed.
+    ///
+    /// Workers return `Ok(None)`, the master returns `Ok(Some(proof))`.
+    #[cfg(feature = "distributed")]
+    #[instrument(level = "debug", skip_all, name = "d_prove")]
+    fn d_prove_with_party_vars<Net: DeSerNet>(
+        poly: &Self::VirtualPolynomial,
+        mut transcript: Option<&mut Self::Transcript>,
+        num_party_vars: usize,
+    ) -> Result<Option<Self::SumCheckProof>, PolyIOPErrors> {
         // Only master appends aux_info (with extended num_variables) to transcript
         if Net::am_master() {
             let tr = transcript
@@ -1482,6 +1531,15 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         // Workers are done; only master continues to Phase 2
         if !Net::am_master() {
             return Ok(None);
+        }
+
+        // No Phase 2 needed: either K=1 or instance-level distribution
+        // (party_vars=0 means all rounds are distributed Phase 1).
+        if num_party_vars == 0 {
+            return Ok(Some(IOPProof {
+                point: prover_state.challenges.clone(),
+                proofs: prover_msgs,
+            }));
         }
 
         // Phase 2 (master only): Build tiny MLEs from the collected scalars.

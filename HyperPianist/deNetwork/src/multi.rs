@@ -171,18 +171,18 @@ fn send_thread(
                         .enumerate()
                         .filter(|p| p.0 != own_id)
                         .for_each(|(_, stream)| {
-                            stream
-                                .as_ref()
-                                .unwrap()
-                                .shutdown(std::net::Shutdown::Both)
-                                .unwrap();
+                            if let Err(e) =
+                                stream.as_ref().unwrap().shutdown(std::net::Shutdown::Write)
+                            {
+                                eprintln!("Error shutting down stream from party 0: {e}");
+                            }
                         })
-                } else {
-                    streams[0]
-                        .as_ref()
-                        .unwrap()
-                        .shutdown(std::net::Shutdown::Both)
-                        .unwrap();
+                } else if let Err(e) = streams[0]
+                    .as_ref()
+                    .unwrap()
+                    .shutdown(std::net::Shutdown::Write)
+                {
+                    eprintln!("Error shutting down stream from party {own_id}: {e}");
                 }
                 return;
             },
@@ -300,6 +300,19 @@ impl Connections {
         let timer = start_timer!(|| "Connecting");
         let n = self.peers.len();
 
+        // ── Single-party (k=1) fast path: no networking needed ──
+        if n == 1 {
+            let (send_send, _send_recv) = crossbeam_channel::unbounded::<(usize, Data)>();
+            self.send_channel = Some(send_send);
+            let (_recv_send, recv_recv): (Vec<_>, Vec<_>) = (0..MAX_NUM_CHANNELS)
+                .map(|_| crossbeam_channel::unbounded::<Data>())
+                .unzip();
+            self.recv_channels = recv_recv;
+            println!("deNetwork ready! (single-party mode, no TCP connections)");
+            end_timer!(timer);
+            return;
+        }
+
         let mut streams = Box::new(Vec::new());
         streams.resize_with(n, Default::default);
 
@@ -393,6 +406,13 @@ impl Connections {
     }
     fn send_to_master(&self, bytes_out: Vec<u8>) -> Option<Vec<Vec<u8>>> {
         let timer = start_timer!(|| format!("To master {}", bytes_out.len()));
+
+        // Single-party fast path
+        if self.peers.len() == 1 {
+            end_timer!(timer);
+            return Some(vec![bytes_out]);
+        }
+
         let channel_id = CHANNEL_ID.get();
 
         let r = if self.am_master() {
@@ -431,6 +451,14 @@ impl Connections {
     fn recv_from_master(&self, bytes_out: Option<Vec<Vec<u8>>>) -> Vec<u8> {
         let timer = start_timer!(|| format!("From master"));
 
+        // Single-party fast path
+        if self.peers.len() == 1 {
+            let data = bytes_out.unwrap();
+            let own_data = data[self.id].clone();
+            end_timer!(timer);
+            return own_data;
+        }
+
         let channel_id = CHANNEL_ID.get();
 
         let r = if self.am_master() {
@@ -468,6 +496,13 @@ impl Connections {
     fn recv_from_master_uniform(&self, bytes_out: Option<Vec<u8>>) -> Vec<u8> {
         let timer = start_timer!(|| format!("From master"));
 
+        // Single-party fast path
+        if self.peers.len() == 1 {
+            let data = bytes_out.unwrap();
+            end_timer!(timer);
+            return data;
+        }
+
         let channel_id = CHANNEL_ID.get();
 
         let r = if self.am_master() {
@@ -503,6 +538,10 @@ impl Connections {
     }
 
     fn uninit(&mut self) {
+        // Single-party: no background threads to shut down
+        if self.peers.len() <= 1 {
+            return;
+        }
         self.send_channel
             .as_ref()
             .unwrap()

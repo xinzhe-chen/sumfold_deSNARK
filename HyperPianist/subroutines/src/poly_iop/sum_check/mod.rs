@@ -258,38 +258,45 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             return Ok(None);
         }
 
-        let final_mle_evals = final_mle_evals.unwrap();
-        let new_mles = (0..final_mle_evals[0].len())
-            .map(|poly_index| Arc::new(DenseMultilinearExtension::from_evaluations_vec(num_party_vars,
-                final_mle_evals.iter().map(
-                    |mle_evals| mle_evals[poly_index]
-                ).collect()
-            )))
-            .collect();
-
-        let mut poly = prover_state.poly.clone();
-        poly.aux_info.num_variables = num_party_vars;
-        poly.replace_mles(new_mles);
-
-        end_timer!(step);
-
         let mut old_challenges = prover_state.challenges.clone();
-        let num_vars = poly.aux_info.num_variables;
-        let mut prover_state = IOPProverState::prover_init(poly)?;
-        challenge = None;
-        for _ in 0..num_vars {
-            let prover_msg =
-                IOPProverState::prove_round_and_update_state(&mut prover_state, &challenge)?;
-            transcript.append_serializable_element(b"prover msg", &prover_msg)?;
-            prover_msgs.push(prover_msg);
-            challenge = Some(transcript.get_and_append_challenge(b"Internal round")?);
-        }
-        // pushing the last challenge point to the state
-        if let Some(p) = challenge {
-            prover_state.challenges.push(p)
-        };
 
-        old_challenges.append(&mut prover_state.challenges);
+        // K=1 (single party): no Phase 2 needed — skip tiny-MLE construction
+        // and extra sumcheck rounds since num_party_vars = 0.
+        if num_party_vars > 0 {
+            let final_mle_evals = final_mle_evals.unwrap();
+            let new_mles = (0..final_mle_evals[0].len())
+                .map(|poly_index| Arc::new(DenseMultilinearExtension::from_evaluations_vec(num_party_vars,
+                    final_mle_evals.iter().map(
+                        |mle_evals| mle_evals[poly_index]
+                    ).collect()
+                )))
+                .collect();
+
+            let mut poly = prover_state.poly.clone();
+            poly.aux_info.num_variables = num_party_vars;
+            poly.replace_mles(new_mles);
+
+            end_timer!(step);
+
+            let num_vars = poly.aux_info.num_variables;
+            let mut prover_state = IOPProverState::prover_init(poly)?;
+            challenge = None;
+            for _ in 0..num_vars {
+                let prover_msg =
+                    IOPProverState::prove_round_and_update_state(&mut prover_state, &challenge)?;
+                transcript.append_serializable_element(b"prover msg", &prover_msg)?;
+                prover_msgs.push(prover_msg);
+                challenge = Some(transcript.get_and_append_challenge(b"Internal round")?);
+            }
+            // pushing the last challenge point to the state
+            if let Some(p) = challenge {
+                prover_state.challenges.push(p)
+            };
+
+            old_challenges.append(&mut prover_state.challenges);
+        } else {
+            end_timer!(step);
+        }
 
         end_timer!(start);
         Ok(Some(IOPProof {

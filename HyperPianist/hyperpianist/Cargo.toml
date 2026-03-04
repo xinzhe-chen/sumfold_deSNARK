@@ -26,6 +26,8 @@ ark-bn254 = { version = "0.4.0", features = ["asm"] }
 structopt = { version = "0.3" }
 rand = "0.8.5"
 deDory = { path = "../deDory" }
+libc = "0.2"
+sysinfo = "0.31"
 
 # Benchmarks
 [[bench]]

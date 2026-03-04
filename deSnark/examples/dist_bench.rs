@@ -30,9 +30,67 @@
 use ark_bn254::Bn254;
 use deNetwork::{DeMultiNet as Net, DeNet};
 use deSnark::{snark::dist_prove, structs::Config};
-use std::{env, time::Instant};
+use std::{
+    env,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread,
+    time::Duration,
+};
 use tracing::error;
 use tracing_subscriber::{fmt, EnvFilter};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+
+// ─── Peak RSS sampler (background thread, 5ms poll) ──────────────────────────
+
+fn current_rss_mb() -> f64 {
+    let mut sys = System::new();
+    let pid = Pid::from_u32(std::process::id());
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        ProcessRefreshKind::new().with_memory(),
+    );
+    sys.process(pid).map(|p| p.memory() as f64 / (1024.0 * 1024.0)).unwrap_or(0.0)
+}
+
+struct PeakSampler {
+    stop_flag: Arc<AtomicBool>,
+    peak_mb:   Arc<Mutex<f64>>,
+    handle:    Option<thread::JoinHandle<()>>,
+}
+
+impl PeakSampler {
+    fn start(initial_rss: f64) -> Self {
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let peak_mb   = Arc::new(Mutex::new(initial_rss));
+        let flag = stop_flag.clone();
+        let peak = peak_mb.clone();
+        let pid  = Pid::from_u32(std::process::id());
+        let handle = thread::spawn(move || {
+            let mut sys = System::new();
+            while !flag.load(Ordering::Relaxed) {
+                sys.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&[pid]),
+                    ProcessRefreshKind::new().with_memory(),
+                );
+                if let Some(p) = sys.process(pid) {
+                    let mb = p.memory() as f64 / (1024.0 * 1024.0);
+                    let mut g = peak.lock().unwrap();
+                    if mb > *g { *g = mb; }
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+        Self { stop_flag, peak_mb, handle: Some(handle) }
+    }
+    fn stop(mut self) -> f64 {
+        self.stop_flag.store(true, Ordering::Relaxed);
+        if let Some(h) = self.handle.take() { h.join().ok(); }
+        (*self.peak_mb.lock().unwrap()).max(current_rss_mb())
+    }
+}
 
 fn main() {
     fmt()
@@ -64,8 +122,13 @@ fn main() {
             cli.nv_max,
             cli.repetitions,
         );
+        eprintln!(
+            "# Rayon threads: {} (RAYON_NUM_THREADS={})",
+            rayon::current_num_threads(),
+            std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_string()),
+        );
         // CSV header
-        println!("nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv");
+        println!("nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb,d_commit_ms,sumfold_ms,sumcheck_ms,fold_ms,multi_open_ms");
     }
 
     for nv in cli.nv_min..=cli.nv_max {
@@ -83,29 +146,61 @@ fn main() {
             );
         }
 
-        // Accumulate timings across repetitions
+        // ─── Warmup run (not timed) ─────────────────────────────────────
+        if Net::am_master() {
+            eprintln!("#   warmup run...");
+        }
+        match dist_prove::<Bn254>(&config) {
+            Ok(_) => {
+                if Net::am_master() {
+                    eprintln!("#   warmup complete");
+                }
+            },
+            Err(e) => {
+                error!("❌ [Party {}] warmup dist_prove failed at nv={}: {}", cli.party_id, nv, e);
+                continue; // skip this nv
+            },
+        }
+
+        // ─── Timed repetitions ───────────────────────────────────────────
         let mut total_setup_ms = 0.0_f64;
         let mut total_prover_ms = 0.0_f64;
         let mut total_verifier_ms = 0.0_f64;
         let mut total_proof_bytes = 0usize;
         let mut total_comm_sent = 0usize;
         let mut total_comm_recv = 0usize;
+        let mut total_cpu_ms = 0.0_f64;
+        let mut total_wall_ms = 0.0_f64;
+        let mut max_peak_rss_mb = 0.0_f64;
+        let mut total_d_commit_ms = 0.0_f64;
+        let mut total_sumfold_ms = 0.0_f64;
+        let mut total_sumcheck_ms = 0.0_f64;
+        let mut total_fold_ms = 0.0_f64;
+        let mut total_multi_open_ms = 0.0_f64;
         let mut successful_reps = 0usize;
 
         for rep in 0..cli.repetitions {
-            Net::reset_stats();
-            let wall_start = Instant::now();
+            // Peak RSS sampled throughout dist_prove;
+            // CPU is measured internally in snark.rs, scoped to proving phase only
+            let sampler = PeakSampler::start(current_rss_mb());
 
             match dist_prove::<Bn254>(&config) {
                 Ok((_vk, proof, timings)) => {
-                    let wall_ms = wall_start.elapsed().as_secs_f64() * 1000.0;
-                    let stats = Net::stats();
+                    let peak_rss_mb = sampler.stop();
 
                     total_setup_ms += timings.setup_ms;
                     total_prover_ms += timings.prover_ms;
                     total_verifier_ms += timings.verifier_ms;
-                    total_comm_sent += stats.bytes_sent;
-                    total_comm_recv += stats.bytes_recv;
+                    total_comm_sent += timings.comm_sent;
+                    total_comm_recv += timings.comm_recv;
+                    total_cpu_ms += timings.prove_cpu_ms;
+                    total_wall_ms += timings.prove_wall_ms;
+                    total_d_commit_ms += timings.d_commit_ms;
+                    total_sumfold_ms += timings.sumfold_ms;
+                    total_sumcheck_ms += timings.sumcheck_ms;
+                    total_fold_ms += timings.fold_ms;
+                    total_multi_open_ms += timings.multi_open_ms;
+                    if peak_rss_mb > max_peak_rss_mb { max_peak_rss_mb = peak_rss_mb; }
 
                     if let Some(ref p) = proof {
                         total_proof_bytes += p.proof_size_bytes();
@@ -114,20 +209,23 @@ fn main() {
                     successful_reps += 1;
 
                     if Net::am_master() {
+                        let avg_cpu = if timings.prove_wall_ms > 0.0 { timings.prove_cpu_ms / timings.prove_wall_ms * 100.0 } else { 0.0 };
                         eprintln!(
-                            "#   rep {}/{}: wall={:.1}ms, prove={:.1}ms, verify={:.1}ms, proof={}B, sent={}B, recv={}B",
+                            "#   rep {}/{}: prove={:.1}ms, verify={:.1}ms, proof={}B, sent={}B, recv={}B, cpu={:.0}%, rss={:.1}MB",
                             rep + 1,
                             cli.repetitions,
-                            wall_ms,
                             timings.prover_ms,
                             timings.verifier_ms,
                             proof.as_ref().map_or(0, |p| p.proof_size_bytes()),
-                            stats.bytes_sent,
-                            stats.bytes_recv,
+                            timings.comm_sent,
+                            timings.comm_recv,
+                            avg_cpu,
+                            peak_rss_mb,
                         );
                     }
                 },
                 Err(e) => {
+                    let _ = sampler.stop(); // stop background thread even on error
                     error!(
                         "❌ [Party {}] dist_prove failed at nv={}, rep={}: {}",
                         cli.party_id,
@@ -142,19 +240,31 @@ fn main() {
         }
 
         // Output averaged CSV line (master only); skip if all reps failed
+        // prover_ms, verifier_ms, comm_sent/recv are all per-instance averages (÷ M ÷ reps)
+        // so they are directly comparable to HyperPianist (which always proves 1 instance).
         if Net::am_master() && successful_reps > 0 {
             let r = successful_reps as f64;
+            let m = config.num_instances() as f64;
+            let m_usize = config.num_instances();
+            let avg_cpu_pct = if total_wall_ms > 0.0 { total_cpu_ms / total_wall_ms * 100.0 } else { 0.0 };
             println!(
-                "{},{},{},{:.3},{:.3},{:.3},{},{},{}",
+                "{},{},{},{:.3},{:.3},{:.3},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.3},{:.3},{:.3}",
                 nv,
                 config.num_instances(),
                 config.num_parties(),
                 total_setup_ms / r,
-                total_prover_ms / r,
-                total_verifier_ms / r,
+                total_prover_ms / r / m,
+                total_verifier_ms / r / m,
                 total_proof_bytes / successful_reps,
-                total_comm_sent / successful_reps,
-                total_comm_recv / successful_reps,
+                total_comm_sent / successful_reps / m_usize,
+                total_comm_recv / successful_reps / m_usize,
+                avg_cpu_pct,
+                max_peak_rss_mb,
+                total_d_commit_ms / r / m,
+                total_sumfold_ms / r / m,
+                total_sumcheck_ms / r / m,
+                total_fold_ms / r / m,
+                total_multi_open_ms / r / m,
             );
         } else if Net::am_master() {
             eprintln!("# nv={}: all repetitions failed, skipping CSV line", nv);

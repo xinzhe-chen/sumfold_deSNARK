@@ -35,6 +35,24 @@ use rayon::iter::{
 /// Result type for d_sumfold operations.
 pub type Result<T> = std::result::Result<T, DeSnarkError>;
 
+/// Configuration for instance-level distribution in d_sumfold.
+///
+/// When provided, d_sumfold treats the party's `polys` as a subset of
+/// `global_m` total instances. The compose polynomial has `global_m`
+/// instance slots, but only `polys.len()` are non-zero (at positions
+/// `[instance_offset .. instance_offset + polys.len())`).
+///
+/// This enables M instances to be distributed across K parties, where
+/// each party holds M/K instances with FULL constraints. Prover messages
+/// remain additively separable because instance contributions are disjoint.
+#[derive(Clone, Debug)]
+pub struct InstanceDistConfig {
+    /// Total number of instances across all parties (must be power of 2)
+    pub global_m: usize,
+    /// Starting instance index for this party's instances
+    pub instance_offset: usize,
+}
+
 /// Distributed SumFold: fold M SumCheck instances into 1 across K parties.
 ///
 /// Each party holds its own M instances. Prover messages are additively
@@ -61,13 +79,43 @@ pub type Result<T> = std::result::Result<T, DeSnarkError>;
 /// * `SumCheckInstance` - This party's folded polynomial + partial v
 /// * `SumFoldProof` - This party's partial proof (for
 ///   `merge_and_verify_sumfold`)
+/// Distributed SumFold with instance-level distribution.
+///
+/// Like [`d_sumfold`], but each party holds only `polys.len()` = M/K
+/// instances out of `config.global_m` total. The compose polynomial
+/// uses `global_m` instance slots; unowned slots are zero.
+///
+/// Prover messages are still additively separable across parties because
+/// instance contributions are disjoint.
+#[instrument(level = "debug", skip_all, name = "d_sumfold_ext")]
+pub fn d_sumfold_ext<F: PrimeField, N: DeSerNet>(
+    polys: Vec<VirtualPolynomial<F>>,
+    sums: Vec<F>,
+    inst_dist: &InstanceDistConfig,
+    transcript: Option<&mut IOPTranscript<F>>,
+) -> Result<(SumCheckInstance<F>, SumFoldProof<F>)> {
+    d_sumfold_core::<F, N>(polys, sums, Some(inst_dist), transcript)
+}
+
 #[instrument(level = "debug", skip_all, name = "d_sumfold")]
 pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     polys: Vec<VirtualPolynomial<F>>,
     sums: Vec<F>,
+    transcript: Option<&mut IOPTranscript<F>>,
+) -> Result<(SumCheckInstance<F>, SumFoldProof<F>)> {
+    d_sumfold_core::<F, N>(polys, sums, None, transcript)
+}
+
+/// Core implementation shared by d_sumfold and d_sumfold_ext.
+fn d_sumfold_core<F: PrimeField, N: DeSerNet>(
+    polys: Vec<VirtualPolynomial<F>>,
+    sums: Vec<F>,
+    inst_dist: Option<&InstanceDistConfig>,
     mut transcript: Option<&mut IOPTranscript<F>>,
 ) -> Result<(SumCheckInstance<F>, SumFoldProof<F>)> {
-    let m = polys.len();
+    let local_m = polys.len();
+    let m = inst_dist.map_or(local_m, |c| c.global_m);
+    let instance_offset = inst_dist.map_or(0, |c| c.instance_offset);
     if m == 0 {
         return Err(DeSnarkError::InvalidParameters(
             "no polynomials to fold".into(),
@@ -85,9 +133,11 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     let length = log2(m) as usize;
 
     info!(
-        "[Party {}] d_sumfold: m={}, t={}, num_vars={}, length={}",
+        "[Party {}] d_sumfold: m={} (local_m={}, offset={}), t={}, num_vars={}, length={}",
         N::party_id(),
         m,
+        local_m,
+        instance_offset,
         t,
         num_vars,
         length
@@ -193,9 +243,19 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
 
     // ═══════════════════════════════════════════════════════════════
     // Stage 2: Compute partial sum_t
-    // Each party computes from its own M instances only.
+    // Each party computes from its own local instances only.
+    // With instance distribution, use the correct eq(rho, i) weights
+    // for the party's global instance indices.
     // ═══════════════════════════════════════════════════════════════
-    let partial_sum_t = stage2_compute_sum_t(&sums, &eq_xr_vec);
+    let partial_sum_t = if inst_dist.is_some() {
+        // Instance distribution: weight by correct global eq values
+        sums.iter()
+            .enumerate()
+            .map(|(local_i, &s)| s * eq_xr_vec[instance_offset + local_i])
+            .sum()
+    } else {
+        stage2_compute_sum_t(&sums, &eq_xr_vec)
+    };
     debug!(
         "[d_sumfold][Party {}] partial_sum_t = {:?}",
         N::party_id(),
@@ -205,15 +265,20 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     // ═══════════════════════════════════════════════════════════════
     // Stage 3+4: Build interleaved compose MLEs directly
     //
-    // compose_mle[j][x * m + i] = polys[i].mle[j][x]
-    // Avoids split_by_last_variables + merge + compose overhead.
+    // compose_mle[j][x * m + i] = polys[local_i].mle[j][x]
+    //   where i = instance_offset + local_i
+    //
+    // With instance distribution, only the party's local_m slots are
+    // filled; unowned slots remain zero. This is correct because
+    // instance contributions are disjoint across parties, and the
+    // partial prover messages are additively separable.
     // ═══════════════════════════════════════════════════════════════
     let compose_nv = length + num_vars;
     let max_degree = polys[0].aux_info.max_degree + 1;
     let products_list = polys[0].products.clone();
 
     // Extract eval slices to avoid capturing non-Sync VirtualPolynomial
-    let all_evals: Vec<Vec<&[F]>> = (0..m)
+    let all_evals: Vec<Vec<&[F]>> = (0..local_m)
         .map(|i| {
             (0..t)
                 .map(|j| polys[i].flattened_ml_extensions[j].evaluations.as_slice())
@@ -224,10 +289,11 @@ pub fn d_sumfold<F: PrimeField, N: DeSerNet>(
     let mut compose_mle_evals: Vec<Vec<F>> = (0..t)
         .into_par_iter()
         .map(|j| {
-            let mut f = Vec::with_capacity(m << num_vars);
+            let mut f = vec![F::zero(); m << num_vars];
             for x in 0..(1 << num_vars) {
-                for i in 0..m {
-                    f.push(all_evals[i][j][x]);
+                for local_i in 0..local_m {
+                    let global_i = instance_offset + local_i;
+                    f[x * m + global_i] = all_evals[local_i][j][x];
                 }
             }
             f

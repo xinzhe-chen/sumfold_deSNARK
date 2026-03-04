@@ -29,3 +29,18 @@ Then, using a script or whatever else, arrange for all sub-provers to run, simul
 `<index of self>` must correspond to the position of the sub-prover in the IP list. `<nv>` is number of variables to test (e.g. 22 corresponds to a circuit of `2^22` constraints).
 Flags `--dory` and `--jellyfish` change the PCS and gate type, respectively. (When not provided, defaults to Mkzg, and vanilla gates.)
 
+### Interactive Benchmark
+
+For comparison with sumfold_deSNARK, use the interactive script:
+```bash
+./scripts/run_interactive_bench.sh
+```
+This prompts for nv range, k values, and reps, then runs benchmarks with
+`RAYON_NUM_THREADS` control and outputs CSV matching sumfold_deSNARK's format.
+The binary performs a warmup `d_prove`, then 20× timed proving. CPU/wall
+measurement is scoped to the timed proving section only.
+
+CSV columns: `nv, M, K, setup_ms, prover_ms, verifier_ms, proof_bytes, comm_sent, comm_recv, avg_cpu_pct, peak_rss_mb`
+
+M is always 1 in the CSV (HyperPianist proves 1 instance per call).
+

@@ -138,6 +138,86 @@ impl Config {
             .collect()
     }
 
+    /// Build M/K mock circuits for instance-level distribution.
+    ///
+    /// Instead of each party having all M instances with N/K constraints,
+    /// each party gets M/K instances with FULL N constraints.
+    /// Party `party_id` gets instances `[party_id * M/K .. (party_id+1) * M/K)`.
+    ///
+    /// All parties use the same deterministic seed sequence so that each
+    /// party generates the correct subset of instance data.
+    ///
+    /// Requires `M >= K` and `M % K == 0`.
+    pub fn build_instance_distributed_circuits<F: PrimeField>(
+        &self,
+        party_id: usize,
+    ) -> Vec<MockCircuit<F>> {
+        use ark_std::rand::{RngCore, SeedableRng};
+
+        let m = self.num_instances();
+        let k = self.num_parties();
+        assert!(
+            m >= k,
+            "instance distribution requires M >= K (M={}, K={})",
+            m,
+            k
+        );
+        assert_eq!(m % k, 0, "M must be divisible by K (M={}, K={})", m, k);
+
+        let instances_per_party = m / k;
+        let start = party_id * instances_per_party;
+        let n = self.num_constraints(); // Full N constraints
+        let gate = self.gate_type.to_gate();
+
+        // Generate seeds for ALL M instances deterministically
+        let mut master_rng = ark_std::test_rng();
+        let seeds: Vec<u64> = (0..m).map(|_| master_rng.next_u64()).collect();
+
+        // Build only this party's instances
+        (0..instances_per_party)
+            .map(|local_i| {
+                let global_i = start + local_i;
+                let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(seeds[global_i]);
+                MockCircuit::new_with_rng(n, &gate, &mut rng)
+            })
+            .collect()
+    }
+
+    /// Build M mock circuits that **share the same selectors** (sequential).
+    ///
+    /// The first instance is built normally; subsequent instances reuse its
+    /// selectors but generate fresh witnesses (with the output wire computed
+    /// to satisfy the gate equation). This mirrors real PLONK circuits where
+    /// selectors encode the fixed circuit structure.
+    ///
+    /// When selectors are shared, the prover can commit them once during setup
+    /// and only commit witnesses during proving — matching HyperPianist's
+    /// timing split.
+    pub fn build_partitioned_circuits_shared_sel<F: PrimeField>(&self) -> Vec<MockCircuit<F>> {
+        let constraints_per_party = self.num_constraints() / self.num_parties();
+        let gate = self.gate_type.to_gate();
+        let mut rng = ark_std::test_rng();
+
+        // First instance: built normally (determines selectors)
+        let first = MockCircuit::new_with_rng(constraints_per_party, &gate, &mut rng);
+        let shared_selectors = first.index.selectors.clone();
+
+        let mut circuits = Vec::with_capacity(self.num_instances());
+        circuits.push(first);
+
+        // Remaining instances: reuse selectors, generate different witnesses
+        for _ in 1..self.num_instances() {
+            circuits.push(MockCircuit::new_with_shared_selectors(
+                constraints_per_party,
+                &gate,
+                &shared_selectors,
+                &mut rng,
+            ));
+        }
+
+        circuits
+    }
+
     /// Build M mock circuits in parallel using Rayon.
     /// Each sub-prover has all M instances, but each instance only has N/K
     /// constraints. Uses per-instance seeds derived from a master RNG for
@@ -285,14 +365,39 @@ impl<F: PrimeField> SumFoldProof<F> {
 /// All durations are in milliseconds (f64 for sub-ms precision).
 #[derive(Clone, Debug, Default)]
 pub struct BenchmarkTimings {
-    /// SRS generation / loading + circuit preprocessing
+    /// Key extraction + PCS trim + selector d_commit (excludes SRS loading
+    /// and circuit generation, matching HyperPianist's d_preprocess scope
+    /// which commits selectors + permutations during key extraction)
     pub setup_ms: f64,
-    /// Distributed proving: d_commit + SumFold + SumCheck + commitment folding
-    /// + d_multi_open + assembly
+    /// Distributed proving: witness d_commit + SumFold + SumCheck +
+    /// commitment folding + d_multi_open + assembly.
+    /// Selector commits are in setup_ms (matching HyperPianist).
     pub prover_ms: f64,
     /// Proof verification: SumFold verify + HyperPianist SumCheck verify
     /// + gate check + PCS batch_verify
     pub verifier_ms: f64,
+    /// Bytes sent during the proving phase only (excludes setup/verify)
+    pub comm_sent: usize,
+    /// Bytes received during the proving phase only (excludes setup/verify)
+    pub comm_recv: usize,
+    /// Process CPU time (user+sys) consumed during the proving phase (ms).
+    /// Useful for computing avg_cpu_pct = prove_cpu_ms / prove_wall_ms * 100.
+    pub prove_cpu_ms: f64,
+    /// Wall-clock time of the proving phase (ms), same as prover_ms but
+    /// kept separately for clarity in cpu% calculation.
+    pub prove_wall_ms: f64,
+
+    // ── Per-phase breakdown (sub-components of prover_ms) ──────────
+    /// Witness polynomial commitment (d_commit / commit)
+    pub d_commit_ms: f64,
+    /// SumFold: folding M instances into 1
+    pub sumfold_ms: f64,
+    /// SumCheck: distributed SumCheck on the folded instance
+    pub sumcheck_ms: f64,
+    /// Commitment folding with eq(r_b, i) weights
+    pub fold_ms: f64,
+    /// PCS batch opening on folded polynomials (d_multi_open / multi_open)
+    pub multi_open_ms: f64,
 }
 
 /// Network configuration for distributed proving.
@@ -378,6 +483,49 @@ mod tests {
         for circuit in &circuits {
             assert_eq!(circuit.index.params.num_constraints, 256);
             assert!(circuit.is_satisfied());
+        }
+    }
+
+    #[test]
+    fn test_build_instance_distributed_circuits() {
+        use ark_bn254::Fr;
+        // ν=2 → M=4, μ=10 → N=1024, κ=1 → K=2
+        let config = Config::new(2, 10, GateType::Vanilla, 1);
+
+        // Each party gets M/K = 4/2 = 2 instances with full N=1024 constraints
+        let circuits_p0 = config.build_instance_distributed_circuits::<Fr>(0);
+        let circuits_p1 = config.build_instance_distributed_circuits::<Fr>(1);
+
+        assert_eq!(circuits_p0.len(), 2);
+        assert_eq!(circuits_p1.len(), 2);
+
+        for circuit in circuits_p0.iter().chain(circuits_p1.iter()) {
+            assert_eq!(circuit.index.params.num_constraints, 1024);
+            assert!(circuit.is_satisfied());
+        }
+    }
+
+    #[test]
+    fn test_build_partitioned_circuits_shared_sel() {
+        use ark_bn254::Fr;
+        // M=8 instances, N=1024, K=4
+        let config = Config::new(3, 10, GateType::Vanilla, 2);
+        let circuits = config.build_partitioned_circuits_shared_sel::<Fr>();
+
+        assert_eq!(circuits.len(), 8);
+        // All instances share the same selectors
+        let base_selectors = &circuits[0].index.selectors;
+        for circuit in &circuits {
+            assert_eq!(circuit.index.params.num_constraints, 256);
+            assert!(circuit.is_satisfied(), "circuit with shared selectors must satisfy constraints");
+            // Check selectors are identical (compare via Debug since field is private)
+            for (j, sel) in circuit.index.selectors.iter().enumerate() {
+                assert_eq!(
+                    format!("{:?}", sel),
+                    format!("{:?}", base_selectors[j]),
+                    "selector {} must be shared", j
+                );
+            }
         }
     }
 

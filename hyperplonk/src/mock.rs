@@ -51,19 +51,28 @@ impl<F: PrimeField> MockCircuit<F> {
         gate: &CustomizedGates,
         rng: &mut impl RngCore,
     ) -> MockCircuit<F> {
-        let nv = log2(num_constraints);
         let num_selectors = gate.num_selector_columns();
         let num_witnesses = gate.num_witness_columns();
-        let log_n_wires = log2(num_witnesses);
-        let merged_nv = nv + log_n_wires;
 
         let mut selectors: Vec<SelectorColumn<F>> = vec![SelectorColumn::default(); num_selectors];
         let mut witnesses: Vec<WitnessColumn<F>> = vec![WitnessColumn::default(); num_witnesses];
 
-        for _cs_counter in 0..num_constraints {
+        // Witness generation matching HyperPianist's MockCircuit::d_new:
+        // First 1/4 of constraints get fully random witnesses;
+        // remaining 3/4 reuse witnesses from the first quarter.
+        let portion_len = num_constraints / 4;
+
+        for cs_counter in 0..num_constraints {
             let mut cur_selectors: Vec<F> =
                 (0..(num_selectors - 1)).map(|_| F::rand(rng)).collect();
-            let cur_witness: Vec<F> = (0..num_witnesses).map(|_| F::rand(rng)).collect();
+            let cur_witness: Vec<F> = if cs_counter < portion_len {
+                (0..num_witnesses).map(|_| F::rand(rng)).collect()
+            } else {
+                let row = cs_counter % portion_len;
+                (0..num_witnesses)
+                    .map(|i| witnesses[i].0[row])
+                    .collect()
+            };
             let mut last_selector = F::zero();
             for (index, (coeff, q, wit)) in gate.gates.iter().enumerate() {
                 if index != num_selectors - 1 {
@@ -109,11 +118,145 @@ impl<F: PrimeField> MockCircuit<F> {
             gate_func: gate.clone(),
         };
 
-        let permutation = identity_permutation(merged_nv as usize, 1);
+        // Identity permutation: sumfold bypasses HyperPlonk's permutation
+        // argument (using SumFold for gate constraints only), and HyperPlonk's
+        // standard path requires the permutation to be valid w.r.t. the copy
+        // constraint structure. Identity is always valid.
+        let permutation = identity_permutation(
+            (log2(num_constraints) + log2(num_witnesses)) as usize,
+            1,
+        );
+
         let index = HyperPlonkIndex {
             params,
             permutation,
             selectors,
+        };
+
+        Self {
+            public_inputs,
+            witnesses,
+            index,
+        }
+    }
+
+    /// Generate a mock circuit that **reuses pre-built selectors** and only
+    /// generates fresh witnesses. The output wire (last witness column used in
+    /// a term with a single witness and a selector) is computed as the dependent
+    /// variable so the constraint is satisfied.
+    ///
+    /// For vanilla plonk (`q_L w_1 + q_R w_2 + q_O w_3 + q_M w_1 w_2 + q_C = 0`):
+    /// `w_3 = -(q_L w_1 + q_R w_2 + q_M w_1 w_2 + q_C) / q_O`.
+    pub fn new_with_shared_selectors(
+        num_constraints: usize,
+        gate: &CustomizedGates,
+        shared_selectors: &[SelectorColumn<F>],
+        rng: &mut impl RngCore,
+    ) -> MockCircuit<F> {
+        let num_selectors = gate.num_selector_columns();
+        let num_witnesses = gate.num_witness_columns();
+        assert_eq!(shared_selectors.len(), num_selectors);
+
+        // Find the "output" term: a gate term with exactly one witness and a
+        // selector.  For vanilla plonk this is term 2: (1, Some(2), [2])
+        // i.e. q_O * w_3.
+        // We'll solve for that witness column.
+        let (out_term_idx, out_sel_idx, out_wit_idx) = gate
+            .gates
+            .iter()
+            .enumerate()
+            .find_map(|(idx, (_coeff, q, ws))| {
+                if ws.len() == 1 && q.is_some() {
+                    // Check that this witness column does NOT appear in any
+                    // higher-degree term (to guarantee it's linear and solvable).
+                    let wid = ws[0];
+                    let appears_elsewhere = gate.gates.iter().enumerate().any(|(i2, (_, _, ws2))| {
+                        i2 != idx && ws2.contains(&wid)
+                    });
+                    if !appears_elsewhere {
+                        return Some((idx, q.unwrap(), wid));
+                    }
+                }
+                None
+            })
+            .expect("gate must have a solvable output term (single-wire, unique column)");
+
+        let mut witnesses: Vec<WitnessColumn<F>> = vec![WitnessColumn::default(); num_witnesses];
+        let portion_len = num_constraints / 4;
+
+        for row in 0..num_constraints {
+            // Generate random input witnesses (all columns except out_wit_idx)
+            let mut cur_witness: Vec<F> = Vec::with_capacity(num_witnesses);
+            if row < portion_len {
+                for _ in 0..num_witnesses {
+                    cur_witness.push(F::rand(rng));
+                }
+            } else {
+                let src_row = row % portion_len;
+                for i in 0..num_witnesses {
+                    cur_witness.push(witnesses[i].0[src_row]);
+                }
+            }
+
+            // Accumulate all terms EXCEPT the output term
+            let mut rest_sum = F::zero();
+            for (idx, (coeff, q, ws)) in gate.gates.iter().enumerate() {
+                if idx == out_term_idx {
+                    continue;
+                }
+                let mut term = if *coeff < 0 {
+                    -F::from((-coeff) as u64)
+                } else {
+                    F::from(*coeff as u64)
+                };
+                if let Some(s) = q {
+                    term *= shared_selectors[*s].0[row];
+                }
+                for &wi in ws {
+                    term *= cur_witness[wi];
+                }
+                rest_sum += term;
+            }
+
+            // Solve: coeff_out * q_out[row] * w_out = -rest_sum
+            let (out_coeff, _, _) = &gate.gates[out_term_idx];
+            let c = if *out_coeff < 0 {
+                -F::from((-out_coeff) as u64)
+            } else {
+                F::from(*out_coeff as u64)
+            };
+            let q_val = shared_selectors[out_sel_idx].0[row];
+            let denom = c * q_val;
+            // If denom is zero, output witness is set to zero (term vanishes)
+            cur_witness[out_wit_idx] = if denom.is_zero() {
+                F::zero()
+            } else {
+                -rest_sum / denom
+            };
+
+            for i in 0..num_witnesses {
+                witnesses[i].append(cur_witness[i]);
+            }
+        }
+
+        let pub_input_len = ark_std::cmp::min(4, num_constraints);
+        let public_inputs = witnesses[0].0[0..pub_input_len].to_vec();
+
+        let params = HyperPlonkParams {
+            num_constraints,
+            num_pub_input: public_inputs.len(),
+            gate_func: gate.clone(),
+        };
+
+        let permutation = identity_permutation(
+            (log2(num_constraints) + log2(num_witnesses)) as usize,
+            1,
+        );
+
+        let index = HyperPlonkIndex {
+            params,
+            permutation,
+            selectors: shared_selectors.to_vec(),
         };
 
         Self {

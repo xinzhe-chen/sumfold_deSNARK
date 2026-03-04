@@ -403,6 +403,13 @@ fn d_open_internal<E: Pairing>(
             })
             .collect::<Vec<E::G1Affine>>();
 
+        // K=1 (single party): no Phase 2 rounds needed — the proof is
+        // complete after aggregating Phase 1 quotient commitments.
+        if m == 0 {
+            end_timer!(agg_timer);
+            return Ok(Some(MultilinearKzgProof { proofs }));
+        }
+
         let mut f = sub_data_vec
             .iter()
             .map(|pi_data| pi_data.F_vec[0])

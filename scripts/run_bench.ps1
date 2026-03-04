@@ -88,7 +88,7 @@ $rawFile   = Join-Path $LogDir "p0_raw.log"
 & $BIN --party 0 --nv-min $NvMin --nv-max $NvMax --reps $Reps $Config 2> $masterLog > $rawFile
 
 # Extract only CSV lines (header + data rows) from the raw output
-$csvHeader = "nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv"
+$csvHeader = "nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb"
 $csvHeader | Out-File -FilePath $CsvFile -Encoding utf8
 $csvHeader
 Get-Content $rawFile | Where-Object { $_ -match '^\d+,' } | ForEach-Object {

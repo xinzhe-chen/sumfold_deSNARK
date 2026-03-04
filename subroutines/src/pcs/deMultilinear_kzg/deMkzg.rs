@@ -169,7 +169,7 @@ impl<E: Pairing> DeMkzg<E> {
         let msm_timer = start_timer!(|| format!("msm of size {}", sub_g_powers_size));
         let start = sub_prover_id * sub_g_powers_size;
         let end = start + sub_g_powers_size;
-        let sub_comm: E::G1Affine = E::G1MSM::msm_unchecked(
+        let sub_comm: E::G1Affine = E::G1MSM::msm_unchecked_par_auto(
             &prover_param.powers_of_g[ignored].evals[start..end],
             &poly.evaluations,
         )
@@ -219,7 +219,7 @@ impl<E: Pairing> DeMkzg<E> {
         let sub_comms: Vec<E::G1Affine> = polys
             .iter()
             .map(|poly| {
-                E::G1MSM::msm_unchecked(
+                E::G1MSM::msm_unchecked_par_auto(
                     &prover_param.powers_of_g[ignored].evals[start..end],
                     &poly.evaluations,
                 )
@@ -262,7 +262,21 @@ impl<E: Pairing> DeMkzg<E> {
         polynomial: &DenseMultilinearExtension<E::ScalarField>,
         point: &[E::ScalarField],
     ) -> Result<Option<MultilinearKzgProof<E>>, PCSError> {
-        d_open_internal::<E>(prover_param, polynomial, point)
+        d_open_internal::<E>(prover_param, polynomial, point, None)
+    }
+
+    /// Distributed open with explicit party variable count.
+    ///
+    /// When `party_vars = 0` (instance-level distribution), each party
+    /// operates on a full-sized polynomial (same SRS slice), and there
+    /// is no Phase 2. Master aggregates quotient commitments directly.
+    pub fn d_open_with_party_vars(
+        prover_param: &MultilinearProverParam<E>,
+        polynomial: &DenseMultilinearExtension<E::ScalarField>,
+        point: &[E::ScalarField],
+        party_vars: usize,
+    ) -> Result<Option<MultilinearKzgProof<E>>, PCSError> {
+        d_open_internal::<E>(prover_param, polynomial, point, Some(party_vars))
     }
 
     /// Distributed multi-open: batch opening of multiple polynomials at
@@ -284,6 +298,30 @@ impl<E: Pairing> DeMkzg<E> {
             points,
             evals,
             transcript,
+            None,
+        )
+    }
+
+    /// Distributed multi-open with explicit party variable count.
+    ///
+    /// When `party_vars = 0`, uses instance-level distribution mode:
+    /// d_prove runs with 0 party vars, d_open uses same SRS slice for
+    /// all parties.
+    pub fn d_multi_open_with_party_vars(
+        prover_param: &MultilinearProverParam<E>,
+        polynomials: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>>,
+        points: &[Vec<E::ScalarField>],
+        evals: &[E::ScalarField],
+        transcript: &mut IOPTranscript<E::ScalarField>,
+        party_vars: usize,
+    ) -> Result<Option<BatchProof<E, MultilinearKzgPCS<E>>>, PCSError> {
+        d_multi_open_internal::<E, MultilinearKzgPCS<E>>(
+            prover_param,
+            polynomials,
+            points,
+            evals,
+            transcript,
+            Some(party_vars),
         )
     }
 }
@@ -306,13 +344,14 @@ fn d_open_internal<E: Pairing>(
     prover_param: &MultilinearProverParam<E>,
     polynomial: &DenseMultilinearExtension<E::ScalarField>,
     point: &[E::ScalarField],
+    party_vars_override: Option<usize>,
 ) -> Result<Option<MultilinearKzgProof<E>>, PCSError> {
     let open_timer =
         start_timer!(|| format!("DeMkzg::d_open with {} variables", polynomial.num_vars));
 
     let sub_prover_id = Net::party_id();
     let num_parties = Net::n_parties();
-    let m = num_parties.log_2();
+    let m = party_vars_override.unwrap_or_else(|| num_parties.log_2());
     let sub_nv = polynomial.num_vars;
     let total_nv = m + sub_nv;
 
@@ -363,11 +402,13 @@ fn d_open_internal<E: Pairing>(
         end_timer!(ith_round_eval);
 
         // MSM over G1 — typically the bottleneck
+        // When party_vars=0 (instance distribution), all parties use the same
+        // SRS slice (no constraint partitioning → no per-party offset).
         let msm_timer = start_timer!(|| format!("msm of size {} at round {}", cur_dim, i));
-        let start_idx = sub_prover_id * cur_dim;
+        let start_idx = if m == 0 { 0 } else { sub_prover_id * cur_dim };
         let end_idx = start_idx + cur_dim;
         sub_qs_comms
-            .push(E::G1MSM::msm_unchecked(&gi.evals[start_idx..end_idx], &q[..cur_dim]).into());
+            .push(E::G1MSM::msm_unchecked_par_auto(&gi.evals[start_idx..end_idx], &q[..cur_dim]).into());
         end_timer!(msm_timer);
 
         end_timer!(ith_round);
@@ -415,6 +456,13 @@ fn d_open_internal<E: Pairing>(
             })
             .collect();
 
+        // K=1 (single party): no Phase 2 rounds needed — the proof is
+        // complete after aggregating Phase 1 quotient commitments.
+        if m == 0 {
+            end_timer!(agg_timer);
+            return Ok(Some(MultilinearKzgProof { proofs }));
+        }
+
         // Collect final evaluations from all parties
         let mut f: Vec<E::ScalarField> = sub_data_vec
             .iter()
@@ -454,7 +502,7 @@ fn d_open_internal<E: Pairing>(
             (r, f) = (f, r);
 
             let msm_timer = start_timer!(|| format!("msm of size {} at round {}", cur_dim, i));
-            proofs.push(E::G1MSM::msm_unchecked(&gi.evals, &q[..cur_dim]).into());
+            proofs.push(E::G1MSM::msm_unchecked_par_auto(&gi.evals, &q[..cur_dim]).into());
             end_timer!(msm_timer);
 
             end_timer!(ith_round);

@@ -21,7 +21,7 @@ Master (party 0)          Workers (parties 1..K-1)
 
 | Binary | Description |
 |--------|-------------|
-| `dist_bench` | Benchmark: sweeps nv range, outputs CSV metrics |
+| `dist_bench` | Benchmark: sweeps nv range with warmup + timed reps, outputs CSV metrics |
 | `dist_prove_demo` | Interactive demo with tracing logs |
 
 ## Configuration
@@ -53,17 +53,27 @@ cargo build --example dist_bench -p deSnark --release
 
 # Start workers first (they bind and listen)
 for i in 1 2 3; do
-    ./target/release/examples/dist_bench \
-        --party $i --nv-min 10 --nv-max 14 deSnark/examples/bench_small.toml &
+    RAYON_NUM_THREADS=2 ./target/release/examples/dist_bench \
+        --party $i --nv-min 10 --nv-max 14 --reps 5 deSnark/examples/bench_small.toml &
 done
 sleep 2
 
 # Start master last (connects to workers, outputs CSV to stdout)
-./target/release/examples/dist_bench \
-    --party 0 --nv-min 10 --nv-max 14 deSnark/examples/bench_small.toml
+RAYON_NUM_THREADS=2 ./target/release/examples/dist_bench \
+    --party 0 --nv-min 10 --nv-max 14 --reps 5 deSnark/examples/bench_small.toml
 ```
 
-Or use the wrapper: `./scripts/run_bench.sh small`
+Or use the interactive wrapper: `./scripts/run_interactive_bench.sh`
+
+### Timing Scopes
+
+| Metric | Scope |
+|--------|-------|
+| `setup_ms` | `preprocess()` + PCS trim (excludes SRS loading and circuit generation) |
+| `prover_ms` | d_commit + SumFold + SumCheck + commitment folding + d_multi_open + assembly, divided by M (per-instance) |
+| `verifier_ms` | SumFold verify + SumCheck verify + gate check + PCS batch_verify, divided by M |
+| `comm_sent/recv` | Bytes sent/received during the proving phase only, divided by M (per-instance) |
+| `avg_cpu_pct` | Process CPU time ÷ wall time of the proving phase |
 
 ## Tests
 

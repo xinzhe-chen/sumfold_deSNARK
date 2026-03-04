@@ -1,5 +1,20 @@
-//! Distributed Sum-Fold Protocol
+//! Distributed Sum-Fold Protocol (DEPRECATED)
 //!
+//! WARNING: The master/worker functions (`master_prepare_and_distribute`,
+//! `master_run_sumcheck_rounds`, `master_collect_and_finalize`,
+//! `worker_receive_data`, `worker_run_sumcheck_rounds`, `worker_send_folded`)
+//! are NON-FUNCTIONAL stubs. They send full data to all workers but IGNORE
+//! worker results, using only the master's local computation. Do NOT use
+//! these functions.
+//!
+//! The production distributed SumFold implementation is in
+//! `deSnark/src/d_sumfold.rs::d_sumfold`, which correctly distributes work
+//! via additive partial message aggregation.
+//!
+//! The `dist_sum_fold` function at the bottom of this file IS functional
+//! but is only used by the demo example (dist_sum_fold_demo).
+//!
+//! Original description:
 //! This module implements a distributed version of `sum_fold_v3` using the
 //! deNetwork crate. Each sub-prover (worker) handles one merged VP, and the
 //! master coordinates the sumcheck rounds.

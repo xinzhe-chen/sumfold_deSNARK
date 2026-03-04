@@ -167,7 +167,7 @@ $masterLog = Join-Path $LogDir "p0.log"
 
 # ─── Extract CSV ─────────────────────────────────────────────────────
 
-$csvHeader = "nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv"
+$csvHeader = "nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb"
 $csvHeader | Out-File -FilePath $CsvFile -Encoding utf8
 $csvHeader
 

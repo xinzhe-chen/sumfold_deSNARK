@@ -668,19 +668,19 @@ pub fn verify_network() -> Result<()> {
 
 /// Inner distributed proving pipeline - circuit-agnostic.
 ///
-/// Takes M virtual polynomials and their claimed sums, then runs:
-/// 1. Distributed SumFold to aggregate M instances into one
+/// Takes virtual polynomials and their claimed sums, then runs:
+/// 1. Distributed SumFold to aggregate instances into one
 /// 2. Distributed SumCheck (HyperPianist) on the folded instance
 /// 3. Assembles the combined proof
 ///
-/// This layer is circuit-agnostic — it operates on abstract virtual
-/// polynomials. The `E` and `PCS` type parameters are threaded through
-/// so the returned `Proof<E, PCS>` can later be augmented with PCS data.
-/// The network must already be initialized.
+/// When `inst_dist` is `Some`, uses instance-level distribution:
+/// each party's `polys` is a subset of the global instances, and
+/// d_sumfold/d_prove/d_open operate with `party_vars = 0`.
 ///
 /// # Arguments
-/// * `polys` - M virtual polynomials (one per instance)
-/// * `sums`  - M claimed sums (one per instance)
+/// * `polys` - This party's virtual polynomials (M for constraint-dist, M/K for instance-dist)
+/// * `sums`  - This party's claimed sums
+/// * `inst_dist` - Instance distribution config (None for constraint distribution)
 ///
 /// # Returns
 /// * `Option<Proof>` - Combined proof (`Some` on master, `None` on workers)
@@ -688,19 +688,92 @@ pub fn verify_network() -> Result<()> {
 pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     polys: Vec<VirtualPolynomial<E::ScalarField>>,
     sums: Vec<E::ScalarField>,
-) -> Result<Option<Proof<E, PCS>>> {
+    inst_dist: Option<&crate::d_sumfold::InstanceDistConfig>,
+) -> Result<(Option<Proof<E, PCS>>, f64, f64)> {
+    // ═══════════════════════════════════════════════════════════════
+    // K=1 fast path: bypass all networking, use local prove directly.
+    // This is the optimal path when running a single party — no
+    // send_to_master / recv_from_master overhead per round.
+    // ═══════════════════════════════════════════════════════════════
+    if Net::n_parties() == 1 {
+        let mut transcript =
+            <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+
+        // Local SumFold (uses sum_fold_v3 — best single-machine path)
+        let sumfold_timer = Instant::now();
+        let instances: Vec<SumCheckInstance<E::ScalarField>> = polys
+            .into_iter()
+            .zip(sums)
+            .map(|(poly, sum)| SumCheckInstance::new(poly, sum))
+            .collect();
+        let (folded_instance, sumfold_proof) =
+            prove_sumfold(instances, &mut transcript)?;
+        let sumfold_ms = sumfold_timer.elapsed().as_secs_f64() * 1000.0;
+
+        #[cfg(debug_assertions)]
+        {
+            let v_total = merge_and_verify_sumfold(vec![sumfold_proof.clone()])?;
+            info!("✅ [K=1] SumFold verify passed: v_total={:?}", v_total);
+        }
+
+        // Local SumCheck (standard prove, no network overhead)
+        // d_prove with K=1 appends aux_info then runs num_vars rounds;
+        // prove() does the same, so the transcript protocol matches.
+        let sumcheck_timer = Instant::now();
+        let hp_proof =
+            <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::prove(
+                &folded_instance.poly,
+                &mut transcript,
+            )
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("prove failed: {e}")))?;
+        let sumcheck_ms = sumcheck_timer.elapsed().as_secs_f64() * 1000.0;
+
+        // Concatenate sumfold + HyperPianist into one big proof
+        let num_sumfold_rounds = sumfold_proof.proof.proofs.len();
+        let mut combined_point = sumfold_proof.proof.point;
+        combined_point.extend(hp_proof.point);
+        let mut combined_proofs = sumfold_proof.proof.proofs;
+        combined_proofs.extend(hp_proof.proofs);
+
+        let proof = Proof {
+            proof: IOPProof {
+                point: combined_point,
+                proofs: combined_proofs,
+            },
+            num_sumfold_rounds,
+            sum_t: sumfold_proof.sum_t,
+            q_aux_info: sumfold_proof.q_aux_info,
+            v: sumfold_proof.v,
+            selector_commits: None,
+            witness_commits: None,
+            batch_openings: None,
+        };
+
+        info!("✅ [K=1] dist_prove_sumcheck: local fast path complete (sumfold={:.1}ms, sumcheck={:.1}ms)", sumfold_ms, sumcheck_ms);
+        return Ok((Some(proof), sumfold_ms, sumcheck_ms));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // K>1 distributed path: use network-coordinated d_sumfold + d_prove
+    // ═══════════════════════════════════════════════════════════════
+
     // Create a single transcript threaded through all proving phases.
     // Master holds the transcript; workers receive challenges via network.
     let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
     // Phase 2: Distributed SumFold aggregation
+    let sumfold_timer = Instant::now();
     let transcript_opt = if Net::am_master() {
         Some(&mut transcript)
     } else {
         None
     };
-    let (folded_instance, sumfold_proof) =
-        crate::d_sumfold::d_sumfold::<E::ScalarField, Net>(polys, sums, transcript_opt)?;
+    let (folded_instance, sumfold_proof) = if let Some(idc) = inst_dist {
+        crate::d_sumfold::d_sumfold_ext::<E::ScalarField, Net>(polys, sums, idc, transcript_opt)?
+    } else {
+        crate::d_sumfold::d_sumfold::<E::ScalarField, Net>(polys, sums, transcript_opt)?
+    };
+    let sumfold_ms = sumfold_timer.elapsed().as_secs_f64() * 1000.0;
 
     #[cfg(debug_assertions)]
     if Net::am_master() {
@@ -709,16 +782,21 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     }
 
     // Phase 3: HyperPianist distributed SumCheck (operates on folded instance)
+    // With instance distribution, party_vars = 0 (no constraint partitioning).
+    let sumcheck_timer = Instant::now();
+    let party_vars = if inst_dist.is_some() { 0 } else { ark_std::log2(Net::n_parties()) as usize };
     let transcript_opt = if Net::am_master() {
         Some(&mut transcript)
     } else {
         None
     };
-    let hp_proof = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove::<Net>(
+    let hp_proof = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::d_prove_with_party_vars::<Net>(
         &folded_instance.poly,
         transcript_opt,
+        party_vars,
     )
     .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_prove failed: {e}")))?;
+    let sumcheck_ms = sumcheck_timer.elapsed().as_secs_f64() * 1000.0;
 
     // Concatenate sumfold + HyperPianist into one big proof
     let num_sumfold_rounds = sumfold_proof.proof.proofs.len();
@@ -742,7 +820,7 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
         }
     });
 
-    Ok(proof)
+    Ok((proof, sumfold_ms, sumcheck_ms))
 }
 
 /// Distributed SNARK prove - complete end-to-end pipeline.
@@ -850,7 +928,13 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
     let gate_func = &pk.params.gate_func;
     let num_selectors = circuits[0].index.selectors.len();
     let num_witnesses = circuits[0].witnesses.len();
-    let num_instances = circuits.len();
+    // Derive num_instances from proof witness commits (selector commits are
+    // shared and have only num_sel entries; witness commits have M × num_wit).
+    let num_instances = if let Some(ref wit_commits) = proof.witness_commits {
+        wit_commits.len() / num_witnesses
+    } else {
+        circuits.len()
+    };
 
     if let (Some(ref batch_proof), Some(ref sel_commits), Some(ref wit_commits)) = (
         &proof.batch_openings,
@@ -908,15 +992,13 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         let eq_rb_vec = build_eq_x_r_vec(r_b)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
 
-        // Fold selector commits: C_sel_j_fold = Σ_i eq(r_b,i) * C_sel_j^i
+        // Selector commits are shared — scalar multiply with Σ_i eq(r_b,i)
         let mut folded_commits: Vec<Commitment<E>> =
             Vec::with_capacity(num_selectors + num_witnesses);
+        let eq_rb_sum: E::ScalarField = eq_rb_vec.iter().copied().sum();
         for j in 0..num_selectors {
-            let bases: Vec<_> = (0..num_instances)
-                .map(|i| sel_commits[i * num_selectors + j].0)
-                .collect();
-            let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
-            folded_commits.push(Commitment(comm_proj.into()));
+            let comm = E::G1MSM::msm_unchecked(&[sel_commits[j].0], &[eq_rb_sum]);
+            folded_commits.push(Commitment(comm.into()));
         }
 
         // Fold witness commits: C_wit_j_fold = Σ_i eq(r_b,i) * C_wit_j^i
@@ -977,12 +1059,15 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         let mut folded_sel_evals = vec![E::ScalarField::from(0u64); num_selectors];
         let mut folded_wit_evals = vec![E::ScalarField::from(0u64); num_witnesses];
 
+        // Selectors are shared: fold with scalar sum
+        let eq_rb_sum: E::ScalarField = eq_rb_vec.iter().copied().sum();
+        for (j, sel) in circuits[0].index.selectors.iter().enumerate() {
+            let mle = DenseMultilinearExtension::from(sel);
+            folded_sel_evals[j] = eq_rb_sum * mle.evaluate(r_phase1).unwrap();
+        }
+        // Witnesses are per-instance: fold with individual eq(r_b,i) weights
         for (i, circuit) in circuits.iter().enumerate() {
             let w = eq_rb_vec[i];
-            for (j, sel) in circuit.index.selectors.iter().enumerate() {
-                let mle = DenseMultilinearExtension::from(sel);
-                folded_sel_evals[j] += w * mle.evaluate(r_phase1).unwrap();
-            }
             for (j, wit) in circuit.witnesses.iter().enumerate() {
                 let mle = DenseMultilinearExtension::from(wit);
                 folded_wit_evals[j] += w * mle.evaluate(r_phase1).unwrap();
@@ -1016,44 +1101,136 @@ pub fn dist_prove<E: Pairing>(
 )> {
     let mut timings = BenchmarkTimings::default();
 
-    // Step 0: Verify network connectivity
-    verify_network()?;
+    // Step 0: Verify network connectivity (skip for K=1 — no network)
+    if Net::n_parties() > 1 {
+        verify_network()?;
+    }
 
-    // Phase 0: Setup
-    let setup_timer = Instant::now();
+    // Phase 0: Load/generate SRS (not counted in setup_ms, matching HP)
     let srs = setup::<E, MultilinearKzgPCS<E>>(config)?;
 
-    // Phase 1: Make circuit
-    let (pk, vk, circuits) = make_circuit::<E, MultilinearKzgPCS<E>>(config, &srs)?;
-    timings.setup_ms = setup_timer.elapsed().as_secs_f64() * 1000.0;
+    // Determine distribution mode:
+    // - Constraint distribution (default): each party gets all M instances with N/K constraints
+    // - K=1: fast path (no distribution)
+    //
+    // NOTE: Instance distribution (each party gets M/K instances with full N
+    // constraints) is DISABLED because the folded VirtualPolynomial after
+    // d_sumfold has degree > 1 products (e.g. q_L * w_1 in vanilla plonk).
+    // With instance distribution and party_vars=0, d_prove aggregates partial
+    // per-party evaluations, but the product structure means per-party
+    // contributions are NOT additive shares of the global folded polynomial
+    // (cross terms between instances on different parties are missing).
+    // This causes verification failure ("PCS-path gate eval mismatch") and
+    // subsequent protocol desync between master and workers.
+    let use_instance_dist = false;
+
+    let inst_dist_config = if use_instance_dist {
+        Some(crate::d_sumfold::InstanceDistConfig {
+            global_m: config.num_instances(),
+            instance_offset: Net::party_id() * (config.num_instances() / config.num_parties()),
+        })
+    } else {
+        None
+    };
+
+    // Phase 1a: Build circuits (not counted in setup_ms, matching HP)
+    let circuits = if use_instance_dist {
+        config.build_instance_distributed_circuits::<E::ScalarField>(Net::party_id())
+    } else {
+        config.build_partitioned_circuits_shared_sel::<E::ScalarField>()
+    };
+    let global_num_instances = config.num_instances();
+    info!(
+        "Circuits built: {} local instances (global M={}), {} witness columns, {} selector columns, {} public inputs each, mode={}",
+        circuits.len(),
+        global_num_instances,
+        circuits[0].index.params.num_witness_columns(),
+        circuits[0].index.params.num_selector_columns(),
+        circuits[0].public_inputs.len(),
+        if use_instance_dist { "instance-dist" } else { "constraint-dist" }
+    );
+
+    // Phase 1b: Preprocess (key extraction + PCS trim — this IS setup_ms,
+    //           matching HyperPianist's d_preprocess scope)
+    let setup_timer = Instant::now();
+    info!(
+        "Preprocessing: num_variables = {}, num_constraints = {}",
+        circuits[0].index.num_variables(),
+        circuits[0].index.params.num_constraints
+    );
+    let (mut pk, mut vk, _duration) =
+        <PolyIOP<E::ScalarField> as HyperPlonkSNARK<E, MultilinearKzgPCS<E>>>::preprocess(
+            &circuits[0].index,
+            &srs,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(e.to_string()))?;
+
+    // Override PCS params: preprocess trims to log(N/K), but d_commit needs
+    // log(N) because it extends local MLEs with log(K) party variables.
+    let d_commit_num_vars = config.log_num_constraints;
+    let (pcs_prover_param, pcs_verifier_param) =
+        MultilinearKzgPCS::<E>::trim(&srs, None, Some(d_commit_num_vars))
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("PCS trim for d_commit: {e}")))?;
+    pk.pcs_param = pcs_prover_param;
+    vk.pcs_param = pcs_verifier_param;
 
     // ═══════════════════════════════════════════════════════════════
-    // Phase 1.5a: d_commit selector and witness polynomials
+    // Phase 1.5a (setup): Commit SHARED selector polynomials
     //
-    // Each MockCircuit instance has its own selectors and witnesses.
-    // We commit ALL M*num_sel selectors + M*num_wit witnesses.
-    // Layout:
-    //   selector_polys[i*num_sel..(i+1)*num_sel] — per-instance selector
-    //   witness_polys[i*num_wit..(i+1)*num_wit]  — per-instance witness
-    //
-    // Use d_commit to produce globally-valid commitments that account
-    // for the party dimension (num_vars + log₂(K)).
+    // In real PLONK, selectors encode the fixed circuit structure and are
+    // identical across all M instances. We commit them once during setup,
+    // matching HyperPianist's d_preprocess which commits selector and
+    // permutation oracles as part of key extraction (setup_ms).
     // ═══════════════════════════════════════════════════════════════
-    let prover_timer = Instant::now();
     let num_instances = circuits.len();
     let num_witnesses = circuits[0].witnesses.len();
     let num_selectors = circuits[0].index.selectors.len();
     let num_vars = pk.params.num_variables();
-    let pcs_timer = Instant::now();
+    let is_single_party = Net::n_parties() == 1;
+    let use_standard_commit = is_single_party || use_instance_dist;
 
-    // Build selector MLEs for ALL M instances
-    let mut selector_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
-        Vec::with_capacity(num_instances * num_selectors);
-    for circuit in &circuits {
-        for s in &circuit.index.selectors {
-            selector_polys.push(Arc::new(DenseMultilinearExtension::from(s)));
-        }
-    }
+    // Build selector MLEs once (shared across all M instances)
+    let selector_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
+        circuits[0].index.selectors.iter()
+            .map(|s| Arc::new(DenseMultilinearExtension::from(s)))
+            .collect();
+
+    // Commit selectors (num_sel only, NOT M × num_sel)
+    let selector_commit_opts: Vec<Option<Commitment<E>>> = if use_standard_commit {
+        selector_polys.iter()
+            .map(|p| MultilinearKzgPCS::<E>::commit(&pk.pcs_param, p).map(Some))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("commit selectors: {e}")))?
+    } else {
+        // Constraint distribution: d_commit extends local polys with party dimension
+        DeMkzg::<E>::batch_d_commit(&pk.pcs_param, &selector_polys)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_commit selectors: {e}")))?
+    };
+    info!(
+        "✅ Setup: committed {} shared selector polys (d_commit={})",
+        num_selectors, !use_standard_commit,
+    );
+    timings.setup_ms = setup_timer.elapsed().as_secs_f64() * 1000.0;
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phase 1.5b (prover): Commit witness polynomials only
+    //
+    // Each of the M instances has its own witnesses. This matches
+    // HyperPianist's d_prove which commits witness polys as the first
+    // step of the proving phase.
+    // ═══════════════════════════════════════════════════════════════
+    let prover_timer = Instant::now();
+    // Reset comm stats so they only cover the proving phase
+    Net::reset_stats();
+    // CPU measurement: scoped precisely to the proving phase
+    let prove_cpu_before = {
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+        let user = usage.ru_utime.tv_sec as f64 * 1e3 + usage.ru_utime.tv_usec as f64 * 1e-3;
+        let sys  = usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 * 1e-3;
+        user + sys
+    };
+    let pcs_timer = Instant::now();
 
     // Build witness MLEs for all M instances
     let mut witness_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
@@ -1064,42 +1241,69 @@ pub fn dist_prove<E: Pairing>(
         }
     }
 
-    // d_commit selectors (distributed commit produces global commitments)
-    let selector_commit_opts = DeMkzg::<E>::batch_d_commit(&pk.pcs_param, &selector_polys)
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_commit selectors: {e}")))?;
-
-    // d_commit witnesses
-    let witness_commit_opts = DeMkzg::<E>::batch_d_commit(&pk.pcs_param, &witness_polys)
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_commit witnesses: {e}")))?;
-
+    // Commit witnesses only (selectors already committed during setup)
+    let witness_commit_opts: Vec<Option<Commitment<E>>> = if use_standard_commit {
+        if use_instance_dist {
+            // Instance distribution: gather all parties' witness commits on master
+            let local_wit_commits: Vec<Commitment<E>> = witness_polys
+                .iter()
+                .map(|p| MultilinearKzgPCS::<E>::commit(&pk.pcs_param, p))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("commit witnesses: {e}")))?;
+            let all_wit = Net::send_to_master(&local_wit_commits);
+            if Net::am_master() {
+                let mut all_wit_flat: Vec<Option<Commitment<E>>> = Vec::new();
+                for party_commits in all_wit.unwrap() {
+                    all_wit_flat.extend(party_commits.into_iter().map(Some));
+                }
+                all_wit_flat
+            } else {
+                local_wit_commits.into_iter().map(Some).collect()
+            }
+        } else {
+            // K=1: standard commit
+            witness_polys.iter()
+                .map(|p| MultilinearKzgPCS::<E>::commit(&pk.pcs_param, p).map(Some))
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("commit witnesses: {e}")))?
+        }
+    } else {
+        // Constraint distribution: d_commit with party aggregation
+        DeMkzg::<E>::batch_d_commit(&pk.pcs_param, &witness_polys)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_commit witnesses: {e}")))?
+    };
+    timings.d_commit_ms = pcs_timer.elapsed().as_secs_f64() * 1000.0;
     info!(
-        "✅ PCS d_commit: {} selectors ({} instances × {}) + {} witnesses ({} instances × {}) in {:?}",
-        selector_polys.len(),
-        num_instances,
-        num_selectors,
-        witness_polys.len(),
-        num_instances,
-        num_witnesses,
-        pcs_timer.elapsed()
+        "✅ PCS d_commit: {} witnesses ({} instances × {}) in {:.1}ms",
+        witness_polys.len(), num_instances, num_witnesses, timings.d_commit_ms
     );
 
     // ═══════════════════════════════════════════════════════════════
-    // Phase 1.5b: Convert circuits to SumCheck instances
+    // Phase 1.5c: Convert circuits to SumCheck instances
     // ═══════════════════════════════════════════════════════════════
-    let instances = circuits_to_sumcheck::<E, MultilinearKzgPCS<E>>(&pk, &circuits)?;
+    // Reuse the selector/witness MLEs built above. Selector MLEs are shared
+    // across all instances (num_sel entries); witness MLEs are per-instance
+    // (M × num_wit entries).
+    let mut polys: Vec<VirtualPolynomial<E::ScalarField>> = Vec::with_capacity(num_instances);
+    let mut sums: Vec<E::ScalarField> = Vec::with_capacity(num_instances);
+    for i in 0..num_instances {
+        let witness_mles =
+            &witness_polys[i * num_witnesses..(i + 1) * num_witnesses];
+        let poly = build_f(&pk.params.gate_func, num_vars, &selector_polys, witness_mles)
+            .map_err(|e| DeSnarkError::HyperPlonkError(e.to_string()))?;
+        polys.push(poly);
+        sums.push(E::ScalarField::from(0u64));
+    }
 
-    // Save aux_info before instances are consumed (needed for verification)
-    let instances_aux = instances[0].aux_info().clone();
-
-    let (polys, sums): (Vec<_>, Vec<_>) = instances
-        .into_iter()
-        .map(|inst| (inst.poly, inst.sum))
-        .unzip();
+    // Save aux_info before polys are consumed (needed for verification)
+    let instances_aux = polys[0].aux_info.clone();
 
     // ═══════════════════════════════════════════════════════════════
     // Phase 2+3: Circuit-agnostic distributed proving (SumFold + SumCheck)
     // ═══════════════════════════════════════════════════════════════
-    let iop_proof = dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(polys, sums)?;
+    let (iop_proof, sumfold_ms, sumcheck_ms) = dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(polys, sums, inst_dist_config.as_ref())?;
+    timings.sumfold_ms = sumfold_ms;
+    timings.sumcheck_ms = sumcheck_ms;
 
     // ═══════════════════════════════════════════════════════════════
     // Phase 4: Commitment folding + PCS batch opening
@@ -1117,8 +1321,17 @@ pub fn dist_prove<E: Pairing>(
     //   4f. d_multi_open on (num_sel + num_wit) folded polynomials
     // ═══════════════════════════════════════════════════════════════
 
-    // 4a: Master extracts and broadcasts r_b + PCS opening point
-    let (r_b_vec, pcs_point): (Vec<E::ScalarField>, Vec<E::ScalarField>) = if Net::am_master() {
+    // 4a: Extract r_b + PCS opening point
+    // K=1: extract directly from proof (no network broadcast needed)
+    // K>1: master broadcasts to all workers
+    let (r_b_vec, pcs_point): (Vec<E::ScalarField>, Vec<E::ScalarField>) = if is_single_party {
+        let proof_ref = iop_proof.as_ref().unwrap();
+        let nsf = proof_ref.num_sumfold_rounds;
+        (
+            proof_ref.proof.point[..nsf].to_vec(),
+            proof_ref.proof.point[nsf..].to_vec(),
+        )
+    } else if Net::am_master() {
         let proof_ref = iop_proof.as_ref().unwrap();
         let nsf = proof_ref.num_sumfold_rounds;
         let r_b = proof_ref.proof.point[..nsf].to_vec();
@@ -1141,23 +1354,26 @@ pub fn dist_prove<E: Pairing>(
 
     let fold_timer = Instant::now();
 
-    // 4c: Each party folds its local polynomials with eq(r_b, i) weights
-    //     sel_j_fold(x) = Σ_i eq(r_b,i) * sel_j^i(x)
-    //     wit_j_fold(x) = Σ_i eq(r_b,i) * wit_j^i(x)
-    //     Parallelized across j (each polynomial is independent).
+    // 4c: Each party folds its local polynomials with eq(r_b, i) weights.
+    //
+    //     Selectors are shared: sel_j_fold(x) = sel_j(x) · (Σ_i eq(r_b,i))
+    //     Witnesses are per-instance: wit_j_fold(x) = Σ_i eq(r_b,i) · wit_j^i(x)
+    //
+    //     Instance-dist: use global eq weight eq_rb_vec[offset + i] for local instance i.
+    //     Each party computes a PARTIAL fold; these are additive shares of the global fold.
+    let instance_offset = inst_dist_config.as_ref().map_or(0, |c| c.instance_offset);
+
+    // Selectors are shared: scale by Σ_i eq(r_b, i) (scalar multiply)
+    let eq_rb_sum: E::ScalarField = eq_rb_vec[instance_offset..instance_offset + num_instances]
+        .iter().copied().sum();
     let folded_sel_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> =
         cfg_into_iter!(0..num_selectors)
             .map(|j| {
                 let poly_nv = selector_polys[j].num_vars;
-                let n = 1 << poly_nv;
-                let mut folded_evals = vec![E::ScalarField::from(0u64); n];
-                for i in 0..num_instances {
-                    let w = eq_rb_vec[i];
-                    let src = &selector_polys[i * num_selectors + j].evaluations;
-                    for (k, v) in folded_evals.iter_mut().enumerate() {
-                        *v += w * src[k];
-                    }
-                }
+                let folded_evals: Vec<E::ScalarField> = selector_polys[j].evaluations
+                    .iter()
+                    .map(|&v| eq_rb_sum * v)
+                    .collect();
                 Arc::new(DenseMultilinearExtension::from_evaluations_vec(
                     poly_nv,
                     folded_evals,
@@ -1172,7 +1388,7 @@ pub fn dist_prove<E: Pairing>(
                 let n = 1 << poly_nv;
                 let mut folded_evals = vec![E::ScalarField::from(0u64); n];
                 for i in 0..num_instances {
-                    let w = eq_rb_vec[i];
+                    let w = eq_rb_vec[instance_offset + i];
                     let src = &witness_polys[i * num_witnesses + j].evaluations;
                     for (k, v) in folded_evals.iter_mut().enumerate() {
                         *v += w * src[k];
@@ -1185,9 +1401,13 @@ pub fn dist_prove<E: Pairing>(
             })
             .collect();
 
-    // 4d: Master folds commitments via MSM
-    //     C_sel_j_fold = Σ_i eq(r_b,i) * C_sel_j^i
-    //     C_wit_j_fold = Σ_i eq(r_b,i) * C_wit_j^i
+    // 4d: Master folds commitments
+    //
+    //     Selectors are shared: C_sel_j_fold = C_sel_j · (Σ_i eq(r_b,i))
+    //     Witnesses are per-instance: C_wit_j_fold = Σ_i eq(r_b,i) · C_wit_j^i
+    //
+    //     Constraint-dist / K=1: master has all M witness commits (local).
+    //     Instance-dist: master has global_M witness commits (from gather).
     let folded_sel_commit_opts: Vec<Option<Commitment<E>>>;
     let folded_wit_commit_opts: Vec<Option<Commitment<E>>>;
 
@@ -1201,19 +1421,19 @@ pub fn dist_prove<E: Pairing>(
             .map(|c| c.clone().unwrap())
             .collect();
 
+        // Selectors are shared: scalar multiply with Σ_i eq(r_b,i)
+        let eq_rb_sum_for_commits: E::ScalarField = eq_rb_vec.iter().copied().sum();
         folded_sel_commit_opts = cfg_into_iter!(0..num_selectors)
             .map(|j| {
-                let bases: Vec<_> = (0..num_instances)
-                    .map(|i| sel_commits[i * num_selectors + j].0)
-                    .collect();
-                let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
-                Some(Commitment(comm_proj.into()))
+                let comm = E::G1MSM::msm_unchecked(&[sel_commits[j].0], &[eq_rb_sum_for_commits]);
+                Some(Commitment(comm.into()))
             })
             .collect();
 
+        // Witnesses are per-instance: fold via MSM
         folded_wit_commit_opts = cfg_into_iter!(0..num_witnesses)
             .map(|j| {
-                let bases: Vec<_> = (0..num_instances)
+                let bases: Vec<_> = (0..global_num_instances)
                     .map(|i| wit_commits[i * num_witnesses + j].0)
                     .collect();
                 let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
@@ -1225,10 +1445,11 @@ pub fn dist_prove<E: Pairing>(
         folded_wit_commit_opts = vec![None; num_witnesses];
     }
 
+    timings.fold_ms = fold_timer.elapsed().as_secs_f64() * 1000.0;
     info!(
-        "✅ Commitment folding completed in {:?} ({} sel + {} wit → {} folded polys)",
-        fold_timer.elapsed(),
-        num_instances * num_selectors,
+        "✅ Commitment folding completed in {:.1}ms ({} shared sel + {} wit → {} folded polys)",
+        timings.fold_ms,
+        num_selectors,
         num_instances * num_witnesses,
         num_selectors + num_witnesses,
     );
@@ -1246,7 +1467,29 @@ pub fn dist_prove<E: Pairing>(
     }
 
     // Aggregate local evaluations across parties to get global evaluations
-    let global_evals: Vec<E::ScalarField> = {
+    // K=1: local_evals ARE global_evals (no party dimension)
+    // Instance-dist: gather partial evals, sum directly (no eq_party weighting — party_vars=0)
+    // Constraint-dist: aggregate with eq(r_party, party_id) weights
+    let global_evals: Vec<E::ScalarField> = if is_single_party {
+        local_evals
+    } else if use_instance_dist {
+        // Instance distribution: partial folds are additive shares → sum directly
+        let all_local_evals: Option<Vec<Vec<E::ScalarField>>> = Net::send_to_master(&local_evals);
+        if Net::am_master() {
+            let all_evals = all_local_evals.unwrap();
+            let num_polys = all_evals[0].len();
+            let mut global = vec![E::ScalarField::from(0u64); num_polys];
+            for party_evals in &all_evals {
+                for (j, &eval) in party_evals.iter().enumerate() {
+                    global[j] += eval;
+                }
+            }
+            Net::recv_from_master_uniform(Some(global))
+        } else {
+            Net::recv_from_master_uniform(None)
+        }
+    } else {
+        // Constraint distribution: aggregate with eq(r_party, party_id) weights
         let all_local_evals: Option<Vec<Vec<E::ScalarField>>> = Net::send_to_master(&local_evals);
         if Net::am_master() {
             let all_evals = all_local_evals.unwrap();
@@ -1293,17 +1536,45 @@ pub fn dist_prove<E: Pairing>(
     }
 
     let open_timer = Instant::now();
-    let batch_proof_opt = DeMkzg::<E>::d_multi_open(
-        &pk.pcs_param,
-        all_polys,
-        &points,
-        &global_evals,
-        &mut pcs_transcript,
-    )
-    .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_multi_open: {e}")))?;
+    // K=1: use standard multi_open (no d_prove / network overhead)
+    // Instance-dist: d_multi_open with party_vars=0 (each party has additive share)
+    // Constraint-dist: d_multi_open with default party_vars=log2(K)
+    let batch_proof_opt: Option<BatchProof<E, MultilinearKzgPCS<E>>> = if is_single_party {
+        let bp = MultilinearKzgPCS::<E>::multi_open(
+            &pk.pcs_param,
+            &all_polys,
+            &points,
+            &global_evals,
+            &mut pcs_transcript,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("multi_open: {e}")))?;
+        Some(bp)
+    } else if use_instance_dist {
+        // Instance distribution: party_vars=0, each party's partial fold is an additive share.
+        // KZG homomorphic property: sum of partial-fold commits = commit of full fold.
+        DeMkzg::<E>::d_multi_open_with_party_vars(
+            &pk.pcs_param,
+            all_polys,
+            &points,
+            &global_evals,
+            &mut pcs_transcript,
+            0,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_multi_open (instance-dist): {e}")))?
+    } else {
+        DeMkzg::<E>::d_multi_open(
+            &pk.pcs_param,
+            all_polys,
+            &points,
+            &global_evals,
+            &mut pcs_transcript,
+        )
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_multi_open: {e}")))?
+    };
+    timings.multi_open_ms = open_timer.elapsed().as_secs_f64() * 1000.0;
     info!(
-        "✅ PCS d_multi_open completed in {:?} ({} folded polys: {} sel + {} wit)",
-        open_timer.elapsed(),
+        "✅ PCS multi_open completed in {:.1}ms ({} folded polys: {} sel + {} wit)",
+        timings.multi_open_ms,
         folded_total,
         num_selectors,
         num_witnesses
@@ -1332,6 +1603,19 @@ pub fn dist_prove<E: Pairing>(
         None
     };
     timings.prover_ms = prover_timer.elapsed().as_secs_f64() * 1000.0;
+    timings.prove_wall_ms = timings.prover_ms;
+    // CPU measurement: scoped precisely to the proving phase
+    timings.prove_cpu_ms = {
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+        let user = usage.ru_utime.tv_sec as f64 * 1e3 + usage.ru_utime.tv_usec as f64 * 1e-3;
+        let sys  = usage.ru_stime.tv_sec as f64 * 1e3 + usage.ru_stime.tv_usec as f64 * 1e-3;
+        (user + sys) - prove_cpu_before
+    };
+    // Capture comm stats from the proving phase only (before verify)
+    let prove_stats = Net::stats();
+    timings.comm_sent = prove_stats.bytes_sent;
+    timings.comm_recv = prove_stats.bytes_recv;
 
     // ═══════════════════════════════════════════════════════════════
     // Phase 6 (master only): Verify the proof
