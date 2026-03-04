@@ -335,7 +335,10 @@ impl Connections {
                                         ms_waited += 10;
                                         std::thread::sleep(std::time::Duration::from_millis(10));
                                         if ms_waited % 3_000 == 0 {
-                                            debug!("Still waiting for peer {} ({}ms)", to_id, ms_waited);
+                                            debug!(
+                                                "Still waiting for peer {} ({}ms)",
+                                                to_id, ms_waited
+                                            );
                                         }
                                         if ms_waited > 30_000 {
                                             panic!("Could not find peer {} in 30s", to_id);

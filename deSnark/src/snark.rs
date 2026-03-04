@@ -140,7 +140,10 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
     let fd = file.as_raw_fd();
     let lock_ok = unsafe { libc::flock(fd, libc::LOCK_SH) } == 0;
     if !lock_ok {
-        warn!("SRS cache: could not acquire shared lock on {}, skipping", path);
+        warn!(
+            "SRS cache: could not acquire shared lock on {}, skipping",
+            path
+        );
         return None;
     }
 
@@ -150,13 +153,17 @@ fn try_load_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(
         Ok(s) => s,
         Err(e) => {
             warn!("SRS cache corrupted ({}): {}", path, e);
-            unsafe { libc::flock(fd, libc::LOCK_UN); }
+            unsafe {
+                libc::flock(fd, libc::LOCK_UN);
+            }
             return None;
         },
     };
 
     // Release shared lock
-    unsafe { libc::flock(fd, libc::LOCK_UN); }
+    unsafe {
+        libc::flock(fd, libc::LOCK_UN);
+    }
 
     // Validate: try trimming to the required size
     match PCS::trim(&srs, None, Some(supported_log_size)) {
@@ -185,7 +192,9 @@ fn save_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: &PCS::SRS, path: &str) {
             // Exclusive lock while writing
             use std::os::unix::io::AsRawFd;
             let fd = file.as_raw_fd();
-            unsafe { libc::flock(fd, libc::LOCK_EX); }
+            unsafe {
+                libc::flock(fd, libc::LOCK_EX);
+            }
 
             let mut writer = std::io::BufWriter::new(file);
             if let Err(e) = srs.serialize_uncompressed(&mut writer) {
