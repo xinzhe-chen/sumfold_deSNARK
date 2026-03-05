@@ -19,16 +19,8 @@ An interactive script that prompts for all parameters, auto-generates configs, b
 | `M` | Number of instances (must be a power of 2) |
 | `reps` | Repetitions per nv for averaging (default 5) |
 
-### Linux / macOS
-
 ```bash
 ./scripts/run_interactive_bench.sh
-```
-
-### Windows (PowerShell)
-
-```powershell
-.\scripts\run_interactive_bench.ps1
 ```
 
 The script will:
@@ -55,16 +47,8 @@ An interactive script that prompts for parameters, auto-generates the hosts file
 | `k` | Number of Sub_Provers (comma-separated, each a power of 2) |
 | `reps` | Repetitions per nv for averaging (default 5) |
 
-### Linux / macOS
-
 ```bash
 ./HyperPianist/scripts/run_interactive_bench.sh
-```
-
-### Windows (PowerShell)
-
-```powershell
-.\HyperPianist\scripts\run_interactive_bench.ps1
 ```
 
 The script will:
