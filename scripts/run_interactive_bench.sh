@@ -226,16 +226,11 @@ EOF
         sleep 2
     fi
 
-    # ─── Run master (party 0) ────────────────────────────────────────
+    # ─── Run master (party 0) — output streams in real-time via tee ──
     echo -e "${GREEN}Running master (party 0) with RAYON_NUM_THREADS=${THREADS_PER_PROVER}...${NC}"
     RAYON_NUM_THREADS=$THREADS_PER_PROVER \
     "$BIN" --party 0 --nv-min $NV_MIN --nv-max $NV_MAX --reps $REPS "$CONFIG_FILE" \
-        2> "$LOG_DIR/p0.log" > "$RAW_FILE"
-
-    # ─── Extract CSV ─────────────────────────────────────────────────
-    CSV_HEADER="nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb,d_commit_ms,sumfold_ms,sumcheck_ms,fold_ms,multi_open_ms"
-    echo "$CSV_HEADER" | tee "$CSV_FILE"
-    grep '^[0-9]\+,' "$RAW_FILE" | tee -a "$CSV_FILE"
+        2> "$LOG_DIR/p0.log" | tee "$CSV_FILE"
 
     # ─── Wait for workers ────────────────────────────────────────────
     for pid in "${WORKER_PIDS[@]}"; do

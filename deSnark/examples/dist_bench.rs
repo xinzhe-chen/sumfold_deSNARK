@@ -29,9 +29,11 @@
 
 use ark_bn254::Bn254;
 use deNetwork::{DeMultiNet as Net, DeNet};
-use deSnark::{snark::dist_prove, structs::Config};
+use deSnark::{snark::dist_prove, setup, structs::Config};
+use subroutines::pcs::prelude::MultilinearKzgPCS;
 use std::{
     env,
+    io::Write,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -139,6 +141,21 @@ fn main() {
         );
         // CSV header
         println!("nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb,d_commit_ms,sumfold_ms,sumcheck_ms,fold_ms,multi_open_ms");
+        std::io::stdout().flush().ok();
+    }
+
+    // Pre-warm SRS cache at nv_max so all iterations can reuse it
+    if cli.nv_min < cli.nv_max {
+        let mut max_config = base_config.clone();
+        max_config.log_num_constraints = cli.nv_max;
+        if Net::am_master() {
+            eprintln!("# Pre-generating SRS for nv_max={}...", cli.nv_max);
+        }
+        setup::<Bn254, MultilinearKzgPCS<Bn254>>(&max_config)
+            .expect("SRS pre-generation failed");
+        if Net::am_master() {
+            eprintln!("# SRS pre-generation complete.");
+        }
     }
 
     for nv in cli.nv_min..=cli.nv_max {
@@ -290,6 +307,7 @@ fn main() {
                 total_fold_ms / r / m,
                 total_multi_open_ms / r / m,
             );
+            std::io::stdout().flush().ok();
         } else if Net::am_master() {
             eprintln!("# nv={}: all repetitions failed, skipping CSV line", nv);
         }
