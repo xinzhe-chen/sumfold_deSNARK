@@ -29,8 +29,7 @@
 
 use ark_bn254::Bn254;
 use deNetwork::{DeMultiNet as Net, DeNet};
-use deSnark::{snark::dist_prove, setup, structs::Config};
-use subroutines::pcs::prelude::MultilinearKzgPCS;
+use deSnark::{setup, snark::dist_prove, structs::Config};
 use std::{
     env,
     io::Write,
@@ -41,6 +40,7 @@ use std::{
     thread,
     time::Duration,
 };
+use subroutines::pcs::prelude::MultilinearKzgPCS;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tracing::error;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -151,8 +151,7 @@ fn main() {
         if Net::am_master() {
             eprintln!("# Pre-generating SRS for nv_max={}...", cli.nv_max);
         }
-        setup::<Bn254, MultilinearKzgPCS<Bn254>>(&max_config)
-            .expect("SRS pre-generation failed");
+        setup::<Bn254, MultilinearKzgPCS<Bn254>>(&max_config).expect("SRS pre-generation failed");
         if Net::am_master() {
             eprintln!("# SRS pre-generation complete.");
         }
