@@ -80,8 +80,9 @@ where
 /// `d_commit` internally adds `log(K)` party variables to each local MLE,
 /// so the SRS must support `(N/K) * K = N` evaluations.
 ///
-/// WARNING: Uses `test_rng()` — for benchmarking and testing only, not production.
-/// For production use, supply an externally generated SRS via [`setup_from_srs`].
+/// WARNING: Uses `test_rng()` — for benchmarking and testing only, not
+/// production. For production use, supply an externally generated SRS via
+/// [`setup_from_srs`].
 #[instrument(level = "debug", skip_all, name = "setup_for_testing")]
 pub fn setup_for_testing<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::SRS> {
     // d_commit extends local MLEs (num_vars = log(N/K)) with log(K) party dims,
@@ -117,10 +118,12 @@ pub fn setup_for_testing<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> 
     Ok(srs)
 }
 
-/// Feature-gated wrapper: calls [`setup_for_testing`] for benchmarking and test builds.
+/// Feature-gated wrapper: calls [`setup_for_testing`] for benchmarking and test
+/// builds.
 ///
-/// Available only when the `test-srs` feature is enabled (included in default features)
-/// or in `#[cfg(test)]` mode. For production, use [`setup_from_srs`] instead.
+/// Available only when the `test-srs` feature is enabled (included in default
+/// features) or in `#[cfg(test)]` mode. For production, use [`setup_from_srs`]
+/// instead.
 #[cfg(any(test, feature = "test-srs"))]
 pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::SRS> {
     setup_for_testing::<E, PCS>(config)
@@ -840,22 +843,19 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     // Create a single transcript threaded through all proving phases.
     // Master holds the transcript; workers receive challenges via network.
     let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
-    // Absorb VK selector commitments before SumFold (Fiat-Shamir binding, master only)
+    // Absorb VK selector commitments before SumFold (Fiat-Shamir binding, master
+    // only)
     if Net::am_master() {
         for cm in sel_commits {
             transcript
                 .append_serializable_element(b"sel_cm", cm)
-                .map_err(|e| {
-                    DeSnarkError::HyperPlonkError(format!("transcript sel_cm: {e}"))
-                })?;
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript sel_cm: {e}")))?;
         }
         // Absorb witness commitments before SumFold (Fiat-Shamir binding)
         for cm in wit_commits {
             transcript
                 .append_serializable_element(b"wit_cm", cm)
-                .map_err(|e| {
-                    DeSnarkError::HyperPlonkError(format!("transcript wit_cm: {e}"))
-                })?;
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript wit_cm: {e}")))?;
         }
     }
 
@@ -1005,15 +1005,11 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         proofs: proof.proof.proofs[..proof.num_sumfold_rounds].to_vec(),
     };
 
-    let (sf_subclaim, rho) = verify_sum_fold_with_transcript(
-        proof.sum_t,
-        &sf_proof,
-        &proof.q_aux_info,
-        &mut transcript,
-    )
-    .map_err(|e| {
-        DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
-    })?;
+    let (sf_subclaim, rho) =
+        verify_sum_fold_with_transcript(proof.sum_t, &sf_proof, &proof.q_aux_info, &mut transcript)
+            .map_err(|e| {
+                DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
+            })?;
 
     // Step 1b: Consistency check — c == v * eq(ρ, r_b)
     let eq_poly = EqPolynomial::new(rho);
@@ -1155,8 +1151,7 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
             Vec::with_capacity(num_selectors + num_witnesses);
         let eq_rb_sum: E::ScalarField = eq_rb_vec.iter().copied().sum();
         for j in 0..num_selectors {
-            let comm =
-                E::G1MSM::msm_unchecked(&[vk.selector_commitments[j].0], &[eq_rb_sum]);
+            let comm = E::G1MSM::msm_unchecked(&[vk.selector_commitments[j].0], &[eq_rb_sum]);
             folded_commits.push(Commitment(comm.into()));
         }
 
@@ -1309,8 +1304,7 @@ pub fn verify<E: Pairing>(
     let num_instances = wit_commits.len() / num_witnesses;
 
     // ── Step 1a: Verify SumFold proof ─────────────────────────────
-    let mut transcript =
-        <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+    let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
     // Absorb VK selector commitments (Fiat-Shamir binding)
     for cm in &vk.selector_commitments {
@@ -1330,15 +1324,11 @@ pub fn verify<E: Pairing>(
         proofs: proof.proof.proofs[..proof.num_sumfold_rounds].to_vec(),
     };
 
-    let (sf_subclaim, rho) = verify_sum_fold_with_transcript(
-        proof.sum_t,
-        &sf_proof,
-        &proof.q_aux_info,
-        &mut transcript,
-    )
-    .map_err(|e| {
-        DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
-    })?;
+    let (sf_subclaim, rho) =
+        verify_sum_fold_with_transcript(proof.sum_t, &sf_proof, &proof.q_aux_info, &mut transcript)
+            .map_err(|e| {
+                DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
+            })?;
 
     // Step 1b: Consistency check — c == v * eq(ρ, r_b)
     let eq_poly = EqPolynomial::new(rho);
@@ -1426,12 +1416,10 @@ pub fn verify<E: Pairing>(
     let eq_rb_vec = build_eq_x_r_vec(r_b)
         .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
 
-    let mut folded_commits: Vec<Commitment<E>> =
-        Vec::with_capacity(num_selectors + num_witnesses);
+    let mut folded_commits: Vec<Commitment<E>> = Vec::with_capacity(num_selectors + num_witnesses);
     let eq_rb_sum: E::ScalarField = eq_rb_vec.iter().copied().sum();
     for j in 0..num_selectors {
-        let comm =
-            E::G1MSM::msm_unchecked(&[vk.selector_commitments[j].0], &[eq_rb_sum]);
+        let comm = E::G1MSM::msm_unchecked(&[vk.selector_commitments[j].0], &[eq_rb_sum]);
         folded_commits.push(Commitment(comm.into()));
     }
     for j in 0..num_witnesses {
@@ -2247,11 +2235,9 @@ mod tests {
 
         let config = Config::new(2, 10, GateType::Vanilla, 2);
 
-        let srs =
-            setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
-        let (pk, _vk, circuits) =
-            make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
-                .expect("make_circuit failed");
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
 
         let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
             .expect("circuits_to_sumcheck failed");
@@ -2280,11 +2266,9 @@ mod tests {
 
         let config = Config::new(2, 10, GateType::Vanilla, 2);
 
-        let srs =
-            setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
-        let (pk, _vk, circuits) =
-            make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
-                .expect("make_circuit failed");
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
 
         let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
             .expect("circuits_to_sumcheck failed");
@@ -2295,9 +2279,7 @@ mod tests {
 
         // Tamper: modify the first round message's first evaluation
         let mut tampered = proof.clone();
-        if !tampered.proof.proofs.is_empty()
-            && !tampered.proof.proofs[0].evaluations.is_empty()
-        {
+        if !tampered.proof.proofs.is_empty() && !tampered.proof.proofs[0].evaluations.is_empty() {
             tampered.proof.proofs[0].evaluations[0] += Fr::from(42u64);
         }
 
@@ -2320,11 +2302,9 @@ mod tests {
 
         let config = Config::new(2, 10, GateType::Vanilla, 2);
 
-        let srs =
-            setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
-        let (pk, _vk, circuits) =
-            make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
-                .expect("make_circuit failed");
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
 
         let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
             .expect("circuits_to_sumcheck failed");
