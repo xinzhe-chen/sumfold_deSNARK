@@ -360,6 +360,17 @@ pub fn setup_from_trusted_source(...)
 
 这样不会把 bench 辅助逻辑误包装成协议正式部分。
 
+### ✅ 实施记录
+
+- **文件**: `deSnark/src/snark.rs`, `deSnark/Cargo.toml`, `deSnark/src/lib.rs`
+- **改法**:
+  1. 原 `setup` 重命名为 `setup_for_testing`（保留完整实现体）
+  2. 新增 feature gate `test-srs`（默认启用），feature-gated `setup` 包装函数仅在 `#[cfg(any(test, feature = "test-srs"))]` 下可用
+  3. 新增 `setup_from_srs` 函数用于接收外部可信 SRS
+  4. `Cargo.toml` default features 改为 `["parallel", "test-srs"]`
+  5. `lib.rs` 更新导出：`setup_for_testing` 始终导出，`setup` 仅在 feature gate 下导出
+- **效果**: 现有 benchmark/test/example 代码无需修改（default features 包含 `test-srs`）；生产编译去掉 `test-srs` feature 后 `setup` 不可用，强制使用 `setup_from_srs`
+
 ---
 
 ## P1-5：明确协议范围
