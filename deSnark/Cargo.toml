@@ -43,7 +43,8 @@ name = "sumfold_profile"
 harness = false
 
 [features]
-default = ["parallel"]
+default = ["parallel", "test-srs"]
+test-srs = []
 parallel = [
     "ark-std/parallel",
     "ark-ff/parallel",

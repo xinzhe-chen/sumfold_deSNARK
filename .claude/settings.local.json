@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for dir in arithmetic deNetwork deSnark hyperplonk subroutines transcript util)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Read(//c/Projects/sumfold_deSNARK/$dir/**)",
+      "Bash(done)"
+    ]
+  }
+}
