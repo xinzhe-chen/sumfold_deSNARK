@@ -69,11 +69,19 @@ Or use the interactive wrapper: `./scripts/run_interactive_bench.sh`
 
 | Metric | Scope |
 |--------|-------|
-| `setup_ms` | `preprocess()` + PCS trim (excludes SRS loading and circuit generation) |
+| `setup_ms` | `preprocess()` + PCS trim + shared selector commitment (excludes SRS loading and circuit generation) |
 | `prover_ms` | d_commit + SumFold + SumCheck + commitment folding + d_multi_open + assembly, divided by M (per-instance) |
 | `verifier_ms` | SumFold verify + SumCheck verify + gate check + PCS batch_verify, divided by M |
 | `comm_sent/recv` | Bytes sent/received during the proving phase only, divided by M (per-instance) |
 | `avg_cpu_pct` | Process CPU time ÷ wall time of the proving phase |
+
+## Standalone Verification
+
+A proof can be verified independently using the public `verify(proof, vk)` API,
+which requires only the proof and verifying key — no proving key, circuits, or
+prover state. The verifier derives all parameters from the VK and replays the
+full Fiat-Shamir transcript (selector + witness commitments → SumFold → SumCheck
+→ gate check → PCS batch_verify).
 
 ## Tests
 

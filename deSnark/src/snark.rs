@@ -25,7 +25,7 @@ use subroutines::{
     pcs::PolynomialCommitmentScheme,
     poly_iop::{
         prelude::{PolyIOP, SumCheck},
-        sum_check::verify_sum_fold,
+        sum_check::{verify_sum_fold, verify_sum_fold_with_transcript},
     },
     BatchProof, Commitment, DeMkzg, IOPProof, MultilinearKzgPCS,
 };
@@ -80,9 +80,11 @@ where
 /// `d_commit` internally adds `log(K)` party variables to each local MLE,
 /// so the SRS must support `(N/K) * K = N` evaluations.
 ///
-/// WARNING: Uses `test_rng()` — for testing only, not production.
-#[instrument(level = "debug", skip_all, name = "setup")]
-pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::SRS> {
+/// WARNING: Uses `test_rng()` — for benchmarking and testing only, not
+/// production. For production use, supply an externally generated SRS via
+/// [`setup_from_srs`].
+#[instrument(level = "debug", skip_all, name = "setup_for_testing")]
+pub fn setup_for_testing<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::SRS> {
     // d_commit extends local MLEs (num_vars = log(N/K)) with log(K) party dims,
     // so the SRS must support log(N/K) + log(K) = log(N) = log_num_constraints.
     let supported_log_size = config.log_num_constraints;
@@ -114,6 +116,25 @@ pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::
     }
 
     Ok(srs)
+}
+
+/// Feature-gated wrapper: calls [`setup_for_testing`] for benchmarking and test
+/// builds.
+///
+/// Available only when the `test-srs` feature is enabled (included in default
+/// features) or in `#[cfg(test)]` mode. For production, use [`setup_from_srs`]
+/// instead.
+#[cfg(any(test, feature = "test-srs"))]
+pub fn setup<E: Pairing, PCS: HyperPlonkPCS<E>>(config: &Config) -> Result<PCS::SRS> {
+    setup_for_testing::<E, PCS>(config)
+}
+
+/// Accept a pre-generated SRS from an external trusted source.
+///
+/// This is the production entry point: the caller is responsible for obtaining
+/// the SRS from a proper ceremony or a trusted distribution channel.
+pub fn setup_from_srs<E: Pairing, PCS: HyperPlonkPCS<E>>(srs: PCS::SRS) -> PCS::SRS {
+    srs
 }
 
 /// Try to load SRS from file and validate it is large enough.
@@ -739,6 +760,8 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     polys: Vec<VirtualPolynomial<E::ScalarField>>,
     sums: Vec<E::ScalarField>,
     inst_dist: Option<&crate::d_sumfold::InstanceDistConfig>,
+    sel_commits: &[Commitment<E>],
+    wit_commits: &[Commitment<E>],
 ) -> Result<(Option<Proof<E, PCS>>, f64, f64)> {
     // ═══════════════════════════════════════════════════════════════
     // K=1 fast path: bypass all networking, use local prove directly.
@@ -748,6 +771,18 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     if Net::n_parties() == 1 {
         let mut transcript =
             <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+        // Absorb VK selector commitments before SumFold (Fiat-Shamir binding)
+        for cm in sel_commits {
+            transcript
+                .append_serializable_element(b"sel_cm", cm)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript sel_cm: {e}")))?;
+        }
+        // Absorb witness commitments before SumFold (Fiat-Shamir binding)
+        for cm in wit_commits {
+            transcript
+                .append_serializable_element(b"wit_cm", cm)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript wit_cm: {e}")))?;
+        }
 
         // Local SumFold (uses sum_fold_v3 — best single-machine path)
         let sumfold_timer = Instant::now();
@@ -808,6 +843,21 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
     // Create a single transcript threaded through all proving phases.
     // Master holds the transcript; workers receive challenges via network.
     let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+    // Absorb VK selector commitments before SumFold (Fiat-Shamir binding, master
+    // only)
+    if Net::am_master() {
+        for cm in sel_commits {
+            transcript
+                .append_serializable_element(b"sel_cm", cm)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript sel_cm: {e}")))?;
+        }
+        // Absorb witness commitments before SumFold (Fiat-Shamir binding)
+        for cm in wit_commits {
+            transcript
+                .append_serializable_element(b"wit_cm", cm)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript wit_cm: {e}")))?;
+        }
+    }
 
     // Phase 2: Distributed SumFold aggregation
     let sumfold_timer = Instant::now();
@@ -925,34 +975,60 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
     let total_hp_rounds = proof.proof.proofs.len() - proof.num_sumfold_rounds;
 
     // ═══════════════════════════════════════════════════════════════
-    // Step 1: Replay full transcript and verify HyperPianist SumCheck
+    // Step 1a: Verify SumFold proof (replaces passive transcript replay)
     //
-    // The prover's transcript was threaded: SumFold → d_prove.
-    // We must replay SumFold operations first so the transcript state
-    // matches, then verify the HyperPianist portion.
+    // verify_sum_fold_with_transcript performs the same transcript ops
+    // as the old replay (append aux_info, squeeze rho, per-round
+    // append+squeeze) AND additionally checks round consistency and
+    // generates a verified subclaim.
     // ═══════════════════════════════════════════════════════════════
     let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
-    // Replay SumFold transcript operations
-    transcript
-        .append_serializable_element(b"aux info", &proof.q_aux_info)
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript replay: {e}")))?;
-    let _rho: Vec<E::ScalarField> = transcript
-        .get_and_append_challenge_vectors(b"sumfold rho", proof.num_sumfold_rounds)
-        .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript replay: {e}")))?;
-    for i in 0..proof.num_sumfold_rounds {
+    // P0-3: Absorb VK selector commitments before SumFold (Fiat-Shamir binding)
+    for cm in &vk.selector_commitments {
         transcript
-            .append_serializable_element(b"prover msg", &proof.proof.proofs[i])
-            .map_err(|e| {
-                DeSnarkError::HyperPlonkError(format!("transcript replay round {i}: {e}"))
-            })?;
-        transcript
-            .get_and_append_challenge(b"Internal round")
-            .map_err(|e| {
-                DeSnarkError::HyperPlonkError(format!("transcript replay challenge {i}: {e}"))
-            })?;
+            .append_serializable_element(b"sel_cm", cm)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript sel_cm: {e}")))?;
+    }
+    // Absorb witness commitments before SumFold (Fiat-Shamir binding)
+    if let Some(ref wit_commits) = proof.witness_commits {
+        for cm in wit_commits {
+            transcript
+                .append_serializable_element(b"wit_cm", cm)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript wit_cm: {e}")))?;
+        }
     }
 
+    // Extract SumFold portion of the combined proof
+    let sf_proof = IOPProof {
+        point: proof.proof.point[..proof.num_sumfold_rounds].to_vec(),
+        proofs: proof.proof.proofs[..proof.num_sumfold_rounds].to_vec(),
+    };
+
+    let (sf_subclaim, rho) =
+        verify_sum_fold_with_transcript(proof.sum_t, &sf_proof, &proof.q_aux_info, &mut transcript)
+            .map_err(|e| {
+                DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
+            })?;
+
+    // Step 1b: Consistency check — c == v * eq(ρ, r_b)
+    let eq_poly = EqPolynomial::new(rho);
+    let eq_val = eq_poly.evaluate(&sf_subclaim.point);
+    let expected_c = proof.v * eq_val;
+    if sf_subclaim.expected_evaluation != expected_c {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "SumFold consistency: c={:?} != v*eq(rho,r_b)={:?}",
+            sf_subclaim.expected_evaluation, expected_c
+        )));
+    }
+    info!(
+        "✅ SumFold verification passed: v={:?}, {} rounds",
+        proof.v, proof.num_sumfold_rounds
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // Step 1c: Verify HyperPianist SumCheck
+    // ═══════════════════════════════════════════════════════════════
     // d_prove uses extended aux_info (num_variables includes party variables)
     let mut hp_aux_info = instances_aux.clone();
     hp_aux_info.num_variables = total_hp_rounds;
@@ -977,7 +1053,7 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
     // ═══════════════════════════════════════════════════════════════
     // Step 2 + 3: Gate equation check + PCS verification
     // ═══════════════════════════════════════════════════════════════
-    let r_b = &proof.proof.point[..proof.num_sumfold_rounds];
+    let r_b = &sf_subclaim.point;
     let gate_func = &pk.params.gate_func;
     let num_selectors = circuits[0].index.selectors.len();
     let num_witnesses = circuits[0].witnesses.len();
@@ -994,6 +1070,31 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         &proof.selector_commits,
         &proof.witness_commits,
     ) {
+        // ───────────────────────────────────────────────────────────
+        // P0-2: Verify selector commitments match VK.
+        // The verifier must trust the VK (fixed circuit statement),
+        // not the proof-provided selector commitments.
+        // ───────────────────────────────────────────────────────────
+        if sel_commits.len() != vk.selector_commitments.len() {
+            return Err(DeSnarkError::HyperPlonkError(format!(
+                "selector commit count mismatch: proof has {}, VK has {}",
+                sel_commits.len(),
+                vk.selector_commitments.len()
+            )));
+        }
+        for (i, (proof_cm, vk_cm)) in sel_commits
+            .iter()
+            .zip(vk.selector_commitments.iter())
+            .enumerate()
+        {
+            if proof_cm != vk_cm {
+                return Err(DeSnarkError::HyperPlonkError(format!(
+                    "selector commitment {} in proof does not match VK",
+                    i
+                )));
+            }
+        }
+
         // ───────────────────────────────────────────────────────────
         // PCS path (commitment-folded):
         //
@@ -1045,12 +1146,12 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         let eq_rb_vec = build_eq_x_r_vec(r_b)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
 
-        // Selector commits are shared — scalar multiply with Σ_i eq(r_b,i)
+        // Selector commits are shared — use VK values (not proof) for PCS verification
         let mut folded_commits: Vec<Commitment<E>> =
             Vec::with_capacity(num_selectors + num_witnesses);
         let eq_rb_sum: E::ScalarField = eq_rb_vec.iter().copied().sum();
         for j in 0..num_selectors {
-            let comm = E::G1MSM::msm_unchecked(&[sel_commits[j].0], &[eq_rb_sum]);
+            let comm = E::G1MSM::msm_unchecked(&[vk.selector_commitments[j].0], &[eq_rb_sum]);
             folded_commits.push(Commitment(comm.into()));
         }
 
@@ -1067,9 +1168,15 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
         let pcs_point = proof.proof.point[proof.num_sumfold_rounds..].to_vec();
         let points: Vec<Vec<E::ScalarField>> = vec![pcs_point; folded_commits.len()];
 
-        // Replay PCS transcript with folded commitments
+        // Replay PCS transcript: bind to SumFold state, then folded commitments
         let mut pcs_transcript =
             <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+        pcs_transcript
+            .append_serializable_element(b"sum_t", &proof.sum_t)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript sum_t: {e}")))?;
+        pcs_transcript
+            .append_serializable_element(b"v", &proof.v)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript v: {e}")))?;
         for c in &folded_commits {
             pcs_transcript
                 .append_serializable_element(b"pcs_cm", c)
@@ -1141,6 +1248,226 @@ fn verify_proof_eval<E: Pairing, PCS: HyperPlonkPCS<E>>(
             folded_eval
         );
     }
+
+    Ok(())
+}
+
+/// Independent proof verification — callable without prover state.
+///
+/// This is the public verification API that only requires the proof and
+/// verifying key. No proving key, circuit witnesses, or prover-side data
+/// are needed. The verifier derives all parameters from the VK and proof.
+///
+/// Requires the proof to contain PCS data (`selector_commits`,
+/// `witness_commits`, `batch_openings`). Proofs without PCS data (legacy
+/// mode) must be verified via the internal `verify_proof_eval` path.
+///
+/// # Verification steps
+/// 1. Replay Fiat-Shamir transcript (sel_cm + wit_cm → SumFold → SumCheck)
+/// 2. Verify SumFold subclaim consistency
+/// 3. Verify HyperPianist SumCheck
+/// 4. Gate equation check on folded evaluations
+/// 5. PCS `batch_verify` on folded commitments + opening proof
+///
+/// # Arguments
+/// * `proof` - The complete SNARK proof (must include PCS data)
+/// * `vk`    - The verifying key (circuit statement + PCS verifier params)
+///
+/// # Returns
+/// * `Ok(())` if the proof is valid
+/// * `Err(DeSnarkError)` if any verification step fails
+pub fn verify<E: Pairing>(
+    proof: &Proof<E, MultilinearKzgPCS<E>>,
+    vk: &VerifyingKey<E, MultilinearKzgPCS<E>>,
+) -> Result<()> {
+    let gate_func = &vk.params.gate_func;
+    let num_selectors = vk.params.num_selector_columns();
+    let num_witnesses = vk.params.num_witness_columns();
+    let total_hp_rounds = proof.proof.proofs.len() - proof.num_sumfold_rounds;
+
+    // ── Require PCS data ──────────────────────────────────────────
+    let (batch_proof, sel_commits, wit_commits) = match (
+        &proof.batch_openings,
+        &proof.selector_commits,
+        &proof.witness_commits,
+    ) {
+        (Some(bp), Some(sc), Some(wc)) => (bp, sc, wc),
+        _ => {
+            return Err(DeSnarkError::HyperPlonkError(
+                "verify() requires proof with PCS data (selector_commits, \
+                 witness_commits, batch_openings)"
+                    .to_string(),
+            ));
+        },
+    };
+
+    let num_instances = wit_commits.len() / num_witnesses;
+
+    // ── Step 1a: Verify SumFold proof ─────────────────────────────
+    let mut transcript = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+
+    // Absorb VK selector commitments (Fiat-Shamir binding)
+    for cm in &vk.selector_commitments {
+        transcript
+            .append_serializable_element(b"sel_cm", cm)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript sel_cm: {e}")))?;
+    }
+    // Absorb witness commitments (Fiat-Shamir binding)
+    for cm in wit_commits {
+        transcript
+            .append_serializable_element(b"wit_cm", cm)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("transcript wit_cm: {e}")))?;
+    }
+
+    let sf_proof = IOPProof {
+        point: proof.proof.point[..proof.num_sumfold_rounds].to_vec(),
+        proofs: proof.proof.proofs[..proof.num_sumfold_rounds].to_vec(),
+    };
+
+    let (sf_subclaim, rho) =
+        verify_sum_fold_with_transcript(proof.sum_t, &sf_proof, &proof.q_aux_info, &mut transcript)
+            .map_err(|e| {
+                DeSnarkError::HyperPlonkError(format!("SumFold verification failed: {e}"))
+            })?;
+
+    // Step 1b: Consistency check — c == v * eq(ρ, r_b)
+    let eq_poly = EqPolynomial::new(rho);
+    let eq_val = eq_poly.evaluate(&sf_subclaim.point);
+    let expected_c = proof.v * eq_val;
+    if sf_subclaim.expected_evaluation != expected_c {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "SumFold consistency: c={:?} != v*eq(rho,r_b)={:?}",
+            sf_subclaim.expected_evaluation, expected_c
+        )));
+    }
+
+    // ── Step 1c: Verify HyperPianist SumCheck ─────────────────────
+    let hp_aux_info = VPAuxInfo {
+        max_degree: gate_func.degree(),
+        num_variables: total_hp_rounds,
+        phantom: std::marker::PhantomData,
+    };
+
+    let hp_proof = IOPProof {
+        point: proof.proof.point[proof.num_sumfold_rounds..].to_vec(),
+        proofs: proof.proof.proofs[proof.num_sumfold_rounds..].to_vec(),
+    };
+
+    let subclaim = <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::verify(
+        proof.v,
+        &hp_proof,
+        &hp_aux_info,
+        &mut transcript,
+    )
+    .map_err(|e| {
+        DeSnarkError::HyperPlonkError(format!(
+            "SumCheck verification of HyperPianist proof failed: {e}"
+        ))
+    })?;
+
+    // ── Step 2: Gate equation check ───────────────────────────────
+    let r_b = &sf_subclaim.point;
+
+    // Validate selector commitments match VK
+    if sel_commits.len() != vk.selector_commitments.len() {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "selector commit count mismatch: proof has {}, VK has {}",
+            sel_commits.len(),
+            vk.selector_commitments.len()
+        )));
+    }
+    for (i, (proof_cm, vk_cm)) in sel_commits
+        .iter()
+        .zip(vk.selector_commitments.iter())
+        .enumerate()
+    {
+        if proof_cm != vk_cm {
+            return Err(DeSnarkError::HyperPlonkError(format!(
+                "selector commitment {} in proof does not match VK",
+                i
+            )));
+        }
+    }
+
+    let evals = &batch_proof.f_i_eval_at_point_i;
+    let expected_num_evals = num_selectors + num_witnesses;
+    if evals.len() != expected_num_evals {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "batch proof eval count mismatch: got {}, expected {}",
+            evals.len(),
+            expected_num_evals,
+        )));
+    }
+
+    let folded_sel_evals = evals[..num_selectors].to_vec();
+    let folded_wit_evals = evals[num_selectors..].to_vec();
+
+    let gate_eval = eval_f(gate_func, &folded_sel_evals, &folded_wit_evals)
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("eval_f: {e}")))?;
+
+    if subclaim.expected_evaluation != gate_eval {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "PCS-path gate eval mismatch: subclaim={:?}, gate_eval={:?}",
+            subclaim.expected_evaluation, gate_eval
+        )));
+    }
+
+    // ── Step 3: PCS batch_verify ──────────────────────────────────
+    let eq_rb_vec = build_eq_x_r_vec(r_b)
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("build_eq_x_r_vec: {e}")))?;
+
+    let mut folded_commits: Vec<Commitment<E>> = Vec::with_capacity(num_selectors + num_witnesses);
+    let eq_rb_sum: E::ScalarField = eq_rb_vec.iter().copied().sum();
+    for j in 0..num_selectors {
+        let comm = E::G1MSM::msm_unchecked(&[vk.selector_commitments[j].0], &[eq_rb_sum]);
+        folded_commits.push(Commitment(comm.into()));
+    }
+    for j in 0..num_witnesses {
+        let bases: Vec<_> = (0..num_instances)
+            .map(|i| wit_commits[i * num_witnesses + j].0)
+            .collect();
+        let comm_proj = E::G1MSM::msm_unchecked(&bases, &eq_rb_vec);
+        folded_commits.push(Commitment(comm_proj.into()));
+    }
+
+    let pcs_point = proof.proof.point[proof.num_sumfold_rounds..].to_vec();
+    let points: Vec<Vec<E::ScalarField>> = vec![pcs_point; folded_commits.len()];
+
+    let mut pcs_transcript =
+        <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
+    pcs_transcript
+        .append_serializable_element(b"sum_t", &proof.sum_t)
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript sum_t: {e}")))?;
+    pcs_transcript
+        .append_serializable_element(b"v", &proof.v)
+        .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript v: {e}")))?;
+    for c in &folded_commits {
+        pcs_transcript
+            .append_serializable_element(b"pcs_cm", c)
+            .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript: {e}")))?;
+    }
+
+    let pcs_ok = MultilinearKzgPCS::<E>::batch_verify(
+        &vk.pcs_param,
+        &folded_commits,
+        &points,
+        batch_proof,
+        &mut pcs_transcript,
+    )
+    .map_err(|e| DeSnarkError::HyperPlonkError(format!("PCS batch_verify: {e}")))?;
+
+    if !pcs_ok {
+        return Err(DeSnarkError::HyperPlonkError(
+            "PCS batch_verify failed: opening proof does not match commitments".to_string(),
+        ));
+    }
+
+    info!(
+        "✅ Independent verification passed: {} SumFold rounds, {} SumCheck rounds, {} folded commits",
+        proof.num_sumfold_rounds,
+        total_hp_rounds,
+        folded_commits.len(),
+    );
 
     Ok(())
 }
@@ -1262,6 +1589,19 @@ pub fn dist_prove<E: Pairing>(
         DeMkzg::<E>::batch_d_commit(&pk.pcs_param, &selector_polys)
             .map_err(|e| DeSnarkError::HyperPlonkError(format!("d_commit selectors: {e}")))?
     };
+    // When using d_commit (K>1 constraint-dist), the selector commitments
+    // differ from those generated by preprocess (standard commit). Update
+    // VK and PK so the verifier sees the same commitments as the proof.
+    if !use_standard_commit {
+        if let Some(new_commits) = selector_commit_opts
+            .iter()
+            .map(|c| c.clone())
+            .collect::<Option<Vec<_>>>()
+        {
+            vk.selector_commitments = new_commits.clone();
+            pk.selector_commitments = new_commits;
+        }
+    }
     info!(
         "✅ Setup: committed {} shared selector polys (d_commit={})",
         num_selectors, !use_standard_commit,
@@ -1365,8 +1705,20 @@ pub fn dist_prove<E: Pairing>(
     // ═══════════════════════════════════════════════════════════════
     // Phase 2+3: Circuit-agnostic distributed proving (SumFold + SumCheck)
     // ═══════════════════════════════════════════════════════════════
-    let (iop_proof, sumfold_ms, sumcheck_ms) =
-        dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(polys, sums, inst_dist_config.as_ref())?;
+    // Extract witness commits for transcript binding.
+    // Master has Some(...) from d_commit; workers have None.
+    let wit_commits_for_transcript: Vec<Commitment<E>> = witness_commit_opts
+        .iter()
+        .filter_map(|c| c.clone())
+        .collect();
+
+    let (iop_proof, sumfold_ms, sumcheck_ms) = dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(
+        polys,
+        sums,
+        inst_dist_config.as_ref(),
+        &vk.selector_commitments,
+        &wit_commits_for_transcript,
+    )?;
     timings.sumfold_ms = sumfold_ms;
     timings.sumcheck_ms = sumcheck_ms;
 
@@ -1592,6 +1944,15 @@ pub fn dist_prove<E: Pairing>(
         <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::init_transcript();
 
     if Net::am_master() {
+        // Bind PCS transcript to SumFold protocol state
+        if let Some(ref p) = iop_proof {
+            pcs_transcript
+                .append_serializable_element(b"sum_t", &p.sum_t)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript sum_t: {e}")))?;
+            pcs_transcript
+                .append_serializable_element(b"v", &p.v)
+                .map_err(|e| DeSnarkError::HyperPlonkError(format!("pcs transcript v: {e}")))?;
+        }
         // Append FOLDED commits to PCS transcript
         let folded_commits: Vec<Commitment<E>> = folded_sel_commit_opts
             .iter()
@@ -1860,5 +2221,107 @@ mod tests {
             .expect("merge_and_verify_sumfold with M=1 should succeed");
 
         println!("M=1 verification passed: v_total={:?}", v_total);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Negative tests: tampered proofs must be rejected
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Tampering with sum_t should cause SumFold verification to fail.
+    #[test]
+    fn test_verify_rejects_tampered_sum_t() {
+        use ark_bn254::{Bn254, Fr};
+        use subroutines::MultilinearKzgPCS;
+
+        let config = Config::new(2, 10, GateType::Vanilla, 2);
+
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
+
+        let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
+            .expect("circuits_to_sumcheck failed");
+
+        let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
+        let (_folded, proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
+
+        // Tamper: flip sum_t to a different value
+        let mut tampered = proof.clone();
+        tampered.sum_t += Fr::from(1u64);
+
+        let result = merge_and_verify_sumfold(vec![tampered]);
+        assert!(
+            result.is_err(),
+            "Verification must reject proof with tampered sum_t"
+        );
+        println!("✅ Tampered sum_t correctly rejected: {:?}", result.err());
+    }
+
+    /// Tampering with SumFold round messages should cause verification to fail.
+    #[test]
+    fn test_verify_rejects_tampered_sumfold_message() {
+        use ark_bn254::{Bn254, Fr};
+        use subroutines::MultilinearKzgPCS;
+
+        let config = Config::new(2, 10, GateType::Vanilla, 2);
+
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
+
+        let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
+            .expect("circuits_to_sumcheck failed");
+
+        let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
+        let (_folded, proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
+
+        // Tamper: modify the first round message's first evaluation
+        let mut tampered = proof.clone();
+        if !tampered.proof.proofs.is_empty() && !tampered.proof.proofs[0].evaluations.is_empty() {
+            tampered.proof.proofs[0].evaluations[0] += Fr::from(42u64);
+        }
+
+        let result = merge_and_verify_sumfold(vec![tampered]);
+        assert!(
+            result.is_err(),
+            "Verification must reject proof with tampered round messages"
+        );
+        println!(
+            "✅ Tampered SumFold message correctly rejected: {:?}",
+            result.err()
+        );
+    }
+
+    /// Tampering with the claimed v should cause consistency check to fail.
+    #[test]
+    fn test_verify_rejects_tampered_v() {
+        use ark_bn254::{Bn254, Fr};
+        use subroutines::MultilinearKzgPCS;
+
+        let config = Config::new(2, 10, GateType::Vanilla, 2);
+
+        let srs = setup::<Bn254, MultilinearKzgPCS<Bn254>>(&config).expect("SRS generation failed");
+        let (pk, _vk, circuits) = make_circuit::<Bn254, MultilinearKzgPCS<Bn254>>(&config, &srs)
+            .expect("make_circuit failed");
+
+        let instances = circuits_to_sumcheck::<Bn254, MultilinearKzgPCS<Bn254>>(&pk, &circuits)
+            .expect("circuits_to_sumcheck failed");
+
+        let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
+        let (_folded, proof) =
+            prove_sumfold(instances, &mut transcript).expect("prove_sumfold failed");
+
+        // Tamper: modify v
+        let mut tampered = proof.clone();
+        tampered.v += Fr::from(1u64);
+
+        let result = merge_and_verify_sumfold(vec![tampered]);
+        assert!(
+            result.is_err(),
+            "Verification must reject proof with tampered v"
+        );
+        println!("✅ Tampered v correctly rejected: {:?}", result.err());
     }
 }
