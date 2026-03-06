@@ -292,6 +292,19 @@ proof.selector_commits == vk.selector_commitments
 - 每一步 challenge 的 label 是什么
 - 哪些 transcript 是主 transcript，哪些是派生 transcript
 
+### ✅ 实施记录
+
+- **文件**: `deSnark/src/snark.rs`
+- **主 transcript 改动**:
+  - Prover (`dist_prove_sumcheck`): K=1 和 K>1 两条路径中，transcript 初始化后、SumFold 开始前，均吸收 `vk.selector_commitments`（label: `b"sel_cm"`）
+  - Verifier (`verify_proof_eval`): 同样在 transcript 初始化后吸收 `vk.selector_commitments`
+  - 函数签名增加 `sel_commits: &[Commitment<E>]` 参数
+- **PCS transcript 改动**:
+  - Prover 和 Verifier 两端均在 PCS transcript 初始化后、追加 folded commits 前，先吸收 `sum_t` 和 `v`（label: `b"sum_t"`, `b"v"`），将 PCS transcript 绑定到主协议状态
+- **当前 transcript 调度表**:
+  1. 主 transcript: `sel_cm` × N → `aux info` → `sumfold rho` → per-round SumFold → per-round HyperPianist
+  2. PCS transcript: `sum_t` → `v` → `pcs_cm` × (num_sel+num_wit) → batch_verify 内部
+
 ---
 
 ## P0-4：把 testing-only setup 和真实 setup 分开
