@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+title: sumfold_deSNARK
+message: If you use this repository, please cite the software metadata below.
+type: software
+authors:
+  - family-names: Chen
+    given-names: Xinzhe
+    email: chenxinzhe132@126.com
+repository-code: https://github.com/xinzhe-chen/sumfold_deSNARK
+url: https://github.com/xinzhe-chen/sumfold_deSNARK
+license: MIT
+version: 0.1.0
+date-released: 2026-03-10
+abstract: Research artifact for distributed SNARK proving with SumFold-style instance folding over a HyperPlonk-derived backend.

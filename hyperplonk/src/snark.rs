@@ -132,7 +132,7 @@ where
         for circuit in circuits.iter() {
             let pub_input = &circuit.public_inputs;
             let witness = circuit.witnesses.clone();
-            prover_sanity_check(&pk.params, &pub_input, &witness)?;
+            prover_sanity_check(&pk.params, pub_input, &witness)?;
             let _num_vars = pk.params.num_variables();
 
             let witness_polys: Vec<Arc<DenseMultilinearExtension<E::ScalarField>>> = witness
@@ -177,7 +177,7 @@ where
                     &pk.permutation_oracles,
                     &mut transcript,
                 )
-                .map_err(|e| HyperPlonkErrors::from(e))?;
+                .map_err(HyperPlonkErrors::from)?;
 
             let prod_comm = PCS::commit(&pk.pcs_param, &prod_poly)?;
             let frac_comm = PCS::commit(&pk.pcs_param, &frac_poly)?;
@@ -274,11 +274,7 @@ where
             start_prove.elapsed()
         );
         // println!("proof{:?}",batch_opening_proof);
-        let evaluations: Vec<E::ScalarField> = batch_opening_proof
-            .f_i_eval_at_point_i
-            .iter()
-            .cloned()
-            .collect();
+        let evaluations: Vec<E::ScalarField> = batch_opening_proof.f_i_eval_at_point_i.to_vec();
 
         let f_eq_rb_vec = build_eq_x_r_vec(&f_rb)?;
         let mut f_folded_evals = vec![vec![E::ScalarField::zero(); f_t]; f_m];
@@ -353,7 +349,7 @@ where
         for (poly, comms) in f_hats.iter().zip(commitments.iter().skip(commitment_idx)) {
             for (_mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
                 // pcs_acc.insert_poly_and_points(_mle, comm, &f_eval_point);
-                all_commitments.push(comm.clone());
+                all_commitments.push(*comm);
                 all_points.push(f_eval_point.clone());
             }
         }
@@ -365,7 +361,7 @@ where
         {
             for (_mle, comm) in poly.flattened_ml_extensions.iter().zip(comms.iter()) {
                 // pcs_acc.insert_poly_and_points(_mle, comm, &perm_eval_point);
-                all_commitments.push(comm.clone());
+                all_commitments.push(*comm);
                 all_points.push(perm_eval_point.clone());
             }
         }
@@ -383,11 +379,7 @@ where
             return Ok(false);
         }
 
-        let evaluations: Vec<E::ScalarField> = batch_opening_proof
-            .f_i_eval_at_point_i
-            .iter()
-            .cloned()
-            .collect();
+        let evaluations: Vec<E::ScalarField> = batch_opening_proof.f_i_eval_at_point_i.to_vec();
 
         let f_eq_rb_vec = build_eq_x_r_vec(&f_rb)?;
         let mut computed_f_folded_evals = vec![vec![E::ScalarField::zero(); f_t]; f_m];
@@ -541,7 +533,7 @@ mod tests {
         let sums = vec![E::ScalarField::zero(); perm_f_hats.len()];
 
         let start = Instant::now();
-        let (perm_q_proof, perm_q_sum, perm_q_aux_info, perm_fold_poly, perm_fold_sum) =
+        let (perm_q_proof, perm_q_sum, perm_q_aux_info, perm_fold_poly, _perm_fold_sum) =
             <PolyIOP<E::ScalarField> as SumCheck<E::ScalarField>>::sum_fold(
                 perm_f_hats.clone(),
                 sums,

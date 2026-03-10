@@ -10,6 +10,17 @@ members = [
   "util",
 ]
 
+[workspace.package]
+version = "0.1.0"
+authors = ["Xinzhe Chen <120122165+xinzhe-chen@users.noreply.github.com>"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/xinzhe-chen/sumfold_deSNARK"
+rust-version = "1.86"
+keywords = ["cryptography", "snark", "plonk", "distributed", "benchmarking"]
+categories = ["cryptography"]
+publish = false
+
 [patch.crates-io]
 ark-ff = { path = "third_party/algebra/ff" }
 ark-ec = { path = "third_party/algebra/ec" }

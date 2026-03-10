@@ -340,7 +340,12 @@ mod test {
         let gates = CustomizedGates {
             gates: vec![(1, Some(0), vec![0, 0, 0, 0, 0]), (-1, None, vec![1])],
         };
-        let f = build_f(&gates, num_vars, &[ql.clone()], &[w1.clone(), w2.clone()])?;
+        let f = build_f(
+            &gates,
+            num_vars,
+            std::slice::from_ref(&ql),
+            &[w1.clone(), w2.clone()],
+        )?;
 
         // Sanity check on build_f
         // f(0, 0) = 0

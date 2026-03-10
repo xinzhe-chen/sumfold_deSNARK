@@ -151,7 +151,7 @@ where
     let num_party_vars = party_vars_override.unwrap_or_else(|| Net::n_parties().log_2());
     let index_vec: Vec<E::ScalarField> = bit_decompose(Net::party_id() as u64, num_party_vars)
         .into_iter()
-        .map(|x| E::ScalarField::from(x))
+        .map(E::ScalarField::from)
         .collect();
 
     let tilde_eqs: Vec<_> = deduped_points

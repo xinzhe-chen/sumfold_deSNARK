@@ -1,46 +1,58 @@
-# HyperPianist
-Implementation of [HyperPianist: Pianist with Linear-Time Prover and Logarithmic Communication Cost (SP2025)](https://eprint.iacr.org/2024/1273).
-This is an optimized, fully distributed version of [HyperPlonk](https://github.com/EspressoSystems/hyperplonk).
+# HyperPianist Baseline Snapshot
 
-This is the PIOP version. For the layered circuit version, check out the other branch.
+This directory keeps a bundled comparison baseline for the public `sumfold_deSNARK` artifact. It is preserved in-tree so that benchmark reproduction can compare the main `deSnark` path against a single-checkout baseline.
 
-The entire codebase is written with haste (to meet conference deadlines) and performance in mind. As such, there is A LOT of code duplication and ad-hoc optimizations. It probably has 3x as many lines as it should. Please do not look for readability or security while going through our code.
+This code is not the primary product of this repository. Maintenance here is limited to keeping comparison builds and scripts reproducible. It should not be interpreted as an audited or production-ready component of the main artifact.
 
-## Building
-Requires Rust Nightly. For optimal performance, please build as `--release`, with
+## Scope In This Repository
+
+- used for side-by-side benchmark comparisons
+- kept under its original directory layout to avoid breaking benchmark scripts
+- documented separately from the main first-party crates
+
+See the repository [README](../README.md) for the main artifact overview and [THIRD_PARTY.md](../THIRD_PARTY.md) for provenance notes.
+
+## Build
+
+This workspace also requires the pinned nightly toolchain.
+
+```bash
+cargo build --manifest-path HyperPianist/Cargo.toml --release
 ```
-RUSTFLAGS='-C target-cpu=native -C target-feature=+bmi2,+adx'
+
+For the benchmark example used in the public artifact:
+
+```bash
+cargo build --manifest-path HyperPianist/Cargo.toml --example hyperpianist-bench --release
 ```
 
 ## Tests
-Most of our code has distributed and non-distributed versions. There are a number of non-distributed tests that can be run as usual. For distributed tests (in the `dTests` folder of each project), you may run them locally with the `run.sh` script. (This will spawn 4 sub-provers on the same machine.) Example (in `subroutines`):
-```
-./dTests/run.sh dSumcheck
-```
 
-## Benchmarks
-The main benchmark is `hyperpianist/dTests/bench.rs`.
-You need to have a list of IPs of sub-provers, on each sub-prover.
-Each sub-prover should have the same list. Please make sure to list LAN IPs in the files.
-Then, using a script or whatever else, arrange for all sub-provers to run, simultaneously
-```
-<executable> <path to IP list> <index of self> <nv> [--dory] [--jellyfish]
-```
-`<index of self>` must correspond to the position of the sub-prover in the IP list. `<nv>` is number of variables to test (e.g. 22 corresponds to a circuit of `2^22` constraints).
-Flags `--dory` and `--jellyfish` change the PCS and gate type, respectively. (When not provided, defaults to Mkzg, and vanilla gates.)
+Some tests are ordinary Rust tests; some distributed checks live under legacy `dTests/` paths.
 
-### Interactive Benchmark
-
-For comparison with sumfold_deSNARK, use the interactive script:
 ```bash
-./scripts/run_interactive_bench.sh
+cargo test --manifest-path HyperPianist/Cargo.toml --release
 ```
-This prompts for nv range, k values, and reps, then runs benchmarks with
-`RAYON_NUM_THREADS` control and outputs CSV matching sumfold_deSNARK's format.
-The binary performs a warmup `d_prove`, then 20× timed proving. CPU/wall
-measurement is scoped to the timed proving section only.
 
-CSV columns: `nv, M, K, setup_ms, prover_ms, verifier_ms, proof_bytes, comm_sent, comm_recv, avg_cpu_pct, peak_rss_mb`
+## Benchmark Entry Point
 
-M is always 1 in the CSV (HyperPianist proves 1 instance per call).
+For the comparison path used by this repository:
 
+```bash
+./HyperPianist/scripts/run_interactive_bench.sh
+```
+
+That wrapper:
+
+- prompts for `nv`, `k`, and repetition settings
+- builds `hyperpianist-bench`
+- runs a localhost benchmark topology
+- writes CSV files under `HyperPianist/target/bench_logs/`
+
+The CSV schema exposed by the wrapper is:
+
+```text
+nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb
+```
+
+`M` is always `1` for this baseline.

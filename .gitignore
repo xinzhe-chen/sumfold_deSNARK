@@ -2,15 +2,17 @@
 .DS_Store
 .idea
 /target
+HyperPianist/target/
 cargo-system-config.toml
-Cargo.lock
 
 # Generated SRS parameter files
 *.params
+*.paras
 
 # Benchmark logs (keep CSVs)
 bench_results/dist_logs/*.log
 target/bench_logs/
+HyperPianist/bench_results/*.csv
 
 # Test coverage (grcov)
 default.profraw

@@ -543,7 +543,7 @@ mod tests {
             // 2. Split poly at (x_1, ..., x_{m-n})
             let point: Vec<Fr> = (0..(m - n)).map(|_| Fr::rand(&mut rng)).collect();
 
-            for split_idx in 0..(1 << n) {
+            for (split_idx, split) in splits.iter().enumerate() {
                 // Build full point by appending binary assignment for split_idx
                 let mut full_point = point.clone();
                 for bit in 0..n {
@@ -552,7 +552,7 @@ mod tests {
                 }
 
                 let expected = evaluate_opt(&poly, &full_point);
-                let actual = evaluate_opt(&splits[split_idx], &point);
+                let actual = evaluate_opt(split, &point);
 
                 assert_eq!(
                     expected, actual,

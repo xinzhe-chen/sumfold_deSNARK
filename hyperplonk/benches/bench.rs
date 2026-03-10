@@ -4,21 +4,15 @@
 // You should have received a copy of the MIT License
 // along with the HyperPlonk library. If not, see <https://mit-license.org/>.
 
-use std::{fs::File, io, time::Instant};
+use std::{fs::File, io};
 
-use ark_bls12_381::{Bls12_381, Fr};
+use ark_bls12_381::Bls12_381;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Write};
 use ark_std::test_rng;
-use hyperplonk::{
-    prelude::{CustomizedGates, HyperPlonkErrors, MockCircuit},
-    HyperPlonkSNARK,
-};
-use subroutines::{
-    pcs::{
-        prelude::{MultilinearKzgPCS, MultilinearUniversalParams},
-        PolynomialCommitmentScheme,
-    },
-    poly_iop::PolyIOP,
+use hyperplonk::prelude::{CustomizedGates, HyperPlonkErrors};
+use subroutines::pcs::{
+    prelude::{MultilinearKzgPCS, MultilinearUniversalParams},
+    PolynomialCommitmentScheme,
 };
 
 const SUPPORTED_SIZE: usize = 20;

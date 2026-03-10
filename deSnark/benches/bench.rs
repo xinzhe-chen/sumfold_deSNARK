@@ -12,7 +12,7 @@
 use std::time::{Duration, Instant};
 
 use ark_bn254::{Bn254, Fr};
-use ark_ff::{One, PrimeField, Zero};
+use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
 use ark_std::test_rng;
 use std::{collections::HashMap, sync::Arc};
@@ -30,7 +30,7 @@ use subroutines::{
     poly_iop::prelude::{PolyIOP, SumCheck},
 };
 
-type PCS = MultilinearKzgPCS<Bn254>;
+type Pcs = MultilinearKzgPCS<Bn254>;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -157,13 +157,13 @@ fn bench_circuits_to_sumcheck() {
 
     for (log_inst, log_cons, log_parties) in configs {
         let config = Config::new(log_inst, log_cons, GateType::Vanilla, log_parties);
-        let srs = setup::<Bn254, PCS>(&config).unwrap();
-        let (pk, _vk, circuits) = make_circuit::<Bn254, PCS>(&config, &srs).unwrap();
+        let srs = setup::<Bn254, Pcs>(&config).unwrap();
+        let (pk, _vk, circuits) = make_circuit::<Bn254, Pcs>(&config, &srs).unwrap();
 
         let iters = if log_cons <= 14 { 5 } else { 2 };
         let dur = bench_avg(
             || {
-                let _ = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits);
+                let _ = circuits_to_sumcheck::<Bn254, Pcs>(&pk, &circuits);
             },
             iters,
         );
@@ -303,8 +303,8 @@ fn bench_prove_sumfold_e2e() {
 
     for (log_inst, log_cons, log_parties) in configs {
         let config = Config::new(log_inst, log_cons, GateType::Vanilla, log_parties);
-        let srs = setup::<Bn254, PCS>(&config).unwrap();
-        let (pk, _vk, circuits) = make_circuit::<Bn254, PCS>(&config, &srs).unwrap();
+        let srs = setup::<Bn254, Pcs>(&config).unwrap();
+        let (pk, _vk, circuits) = make_circuit::<Bn254, Pcs>(&config, &srs).unwrap();
 
         let m = config.num_instances();
         let nv = config.log_num_constraints - config.log_num_parties;
@@ -312,14 +312,14 @@ fn bench_prove_sumfold_e2e() {
 
         // Phase 1.5: conversion
         let start_conv = Instant::now();
-        let _instances = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits).unwrap();
+        let _instances = circuits_to_sumcheck::<Bn254, Pcs>(&pk, &circuits).unwrap();
         let dur_conv = start_conv.elapsed();
 
         // Phase 2: sum_fold (in release mode, only runs v2)
         let dur_sumfold = {
             let mut total = Duration::ZERO;
             for _ in 0..iters {
-                let instances_copy = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits).unwrap();
+                let instances_copy = circuits_to_sumcheck::<Bn254, Pcs>(&pk, &circuits).unwrap();
                 let mut transcript = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
                 let start = Instant::now();
                 let _ = prove_sumfold(instances_copy, &mut transcript).unwrap();
@@ -545,19 +545,19 @@ fn bench_full_pipeline() {
 
         // Phase 0: Setup
         let start = Instant::now();
-        let srs = setup::<Bn254, PCS>(&config).unwrap();
+        let srs = setup::<Bn254, Pcs>(&config).unwrap();
         let dur_setup = start.elapsed();
         row("    setup (SRS gen/load)", dur_setup);
 
         // Phase 1: Make circuit
         let start = Instant::now();
-        let (pk, _vk, circuits) = make_circuit::<Bn254, PCS>(&config, &srs).unwrap();
+        let (pk, _vk, circuits) = make_circuit::<Bn254, Pcs>(&config, &srs).unwrap();
         let dur_circuit = start.elapsed();
         row("    make_circuit (build + preprocess)", dur_circuit);
 
         // Phase 1.5: Convert to SumCheck instances
         let start = Instant::now();
-        let instances = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits).unwrap();
+        let instances = circuits_to_sumcheck::<Bn254, Pcs>(&pk, &circuits).unwrap();
         let dur_convert = start.elapsed();
         row("    circuits_to_sumcheck", dur_convert);
 
@@ -575,7 +575,7 @@ fn bench_full_pipeline() {
         row("    merge_and_verify_sumfold (K=1)", dur_verify_sumfold);
 
         // Phase 3: SumCheck prove on folded instance
-        let instances2 = circuits_to_sumcheck::<Bn254, PCS>(&pk, &circuits).unwrap();
+        let instances2 = circuits_to_sumcheck::<Bn254, Pcs>(&pk, &circuits).unwrap();
         let mut transcript2 = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
         let (folded2, _) = prove_sumfold(instances2, &mut transcript2).unwrap();
         let start = Instant::now();

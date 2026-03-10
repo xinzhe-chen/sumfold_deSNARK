@@ -398,13 +398,11 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
     type Transcript = IOPTranscript<F>;
 
     fn extract_sum(proof: &Self::SumCheckProof) -> F {
-        let res = proof.proofs[0].evaluations[0] + proof.proofs[0].evaluations[1];
-        res
+        proof.proofs[0].evaluations[0] + proof.proofs[0].evaluations[1]
     }
 
     fn init_transcript() -> Self::Transcript {
-        let res = IOPTranscript::<F>::new(b"Initializing SumCheck transcript");
-        res
+        IOPTranscript::<F>::new(b"Initializing SumCheck transcript")
     }
 
     fn prove(
@@ -476,8 +474,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
             )?;
         }
 
-        let res = IOPVerifierState::check_and_generate_subclaim(&verifier_state, &claimed_sum);
-        res
+        IOPVerifierState::check_and_generate_subclaim(&verifier_state, &claimed_sum)
     }
 
     fn sum_fold(
@@ -745,7 +742,7 @@ impl<F: PrimeField> SumCheck<F> for PolyIOP<F> {
         };
 
         let final_round_proof = proof.proofs[length - 1].evaluations.clone();
-        let final_challenge = proof.point[length - 1].clone();
+        let final_challenge = proof.point[length - 1];
         let c = interpolate_uni_poly::<F>(&final_round_proof, final_challenge);
         let rb = proof.point.clone();
 

@@ -1,10 +1,16 @@
 [package]
 name = "deNetwork"
-version = "0.1.0"
-authors = ["Alex Ozdemir <aozdemir@hmc.edu>"]
+version.workspace = true
+authors.workspace = true
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+description = "Minimal network transport layer used by the distributed sumfold_deSNARK benchmarks."
+readme = "../README.md"
 
 [dependencies]
 lazy_static = "1"
