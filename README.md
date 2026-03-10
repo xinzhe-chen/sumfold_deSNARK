@@ -75,11 +75,15 @@ make bench-smoke
 
 This script:
 
-- asks for `nv` range, `K`, `M`, and repetition count
-- builds `deSnark/examples/dist_bench`
+- asks for `nv` range, `K`, `M`, repetition count, and gate preset
+- builds `deSnark/examples/dist_bench` for `vanilla`, or `deSnark/examples/dist_bench_custom_gate` for non-vanilla gates
 - generates a localhost host file and config automatically
 - launches the distributed benchmark locally
 - writes CSV output to `target/bench_logs/`
+
+The interactive script supports `vanilla`, `jellyfish_turbo`, `super_long_selector`, and `mock` gate presets. Non-vanilla runs automatically switch to the custom-gate benchmark binary and emit extra gate metadata in the CSV.
+
+Note: `super_long_selector` and some `mock` configurations lack a solvable output term for shared-selector mode. When `M > 1`, the prover returns an error for these gates. Use `M = 1` or choose a gate that supports shared selectors (e.g. `vanilla`, `jellyfish_turbo`).
 
 ## Benchmark Output
 

@@ -32,13 +32,66 @@ pub enum GateType {
     /// Vanilla PLONK gate: q_L w_1 + q_R w_2 + q_O w_3 + q_M w_1 w_2 + q_C = 0
     #[default]
     Vanilla,
+    /// Jellyfish TurboPlonk gate (13 selectors, 5 witnesses, degree 6)
+    JellyfishTurbo,
+    /// Gate where #selectors > 2 * #witnesses (7 selectors, 3 witnesses)
+    SuperLongSelector,
+    /// Parameterised mock gate with configurable witness count and degree
+    Mock { num_witness: usize, degree: usize },
 }
 
 impl GateType {
+    /// Validate that gate parameters are well-formed.
+    ///
+    /// Should be called once after loading from TOML / constructing from
+    /// user input.  Returns `Err` with a human-readable message for
+    /// invalid `Mock` parameters (`degree < 1` or `num_witness < 1`).
+    pub fn validate(&self) -> Result<(), String> {
+        if let GateType::Mock {
+            num_witness,
+            degree,
+        } = self
+        {
+            if *degree < 1 {
+                return Err(format!("mock gate degree must be >= 1, got {degree}"));
+            }
+            if *num_witness < 1 {
+                return Err(format!(
+                    "mock gate num_witness must be >= 1, got {num_witness}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Convert to HyperPlonk CustomizedGates.
+    ///
+    /// # Panics
+    /// Panics if `Mock` parameters are invalid. Call
+    /// [`validate()`](Self::validate) first when constructing from
+    /// untrusted input (e.g. TOML config).
     pub fn to_gate(&self) -> CustomizedGates {
         match self {
             GateType::Vanilla => CustomizedGates::vanilla_plonk_gate(),
+            GateType::JellyfishTurbo => CustomizedGates::jellyfish_turbo_plonk_gate(),
+            GateType::SuperLongSelector => CustomizedGates::super_long_selector_gate(),
+            GateType::Mock {
+                num_witness,
+                degree,
+            } => CustomizedGates::mock_gate(*num_witness, *degree),
+        }
+    }
+
+    /// Human-readable name for CSV / logging.
+    pub fn name(&self) -> String {
+        match self {
+            GateType::Vanilla => "vanilla".to_string(),
+            GateType::JellyfishTurbo => "jellyfish_turbo".to_string(),
+            GateType::SuperLongSelector => "super_long_selector".to_string(),
+            GateType::Mock {
+                num_witness,
+                degree,
+            } => format!("mock_w{num_witness}_d{degree}"),
         }
     }
 }
@@ -93,8 +146,13 @@ impl Config {
     pub fn from_toml_file(path: impl AsRef<Path>) -> Result<(Config, NetworkConfig), String> {
         let content = std::fs::read_to_string(path.as_ref())
             .map_err(|e| format!("Failed to read {}: {e}", path.as_ref().display()))?;
-        let top: TomlTop =
-            toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {e}"))?;
+        Self::from_toml_str(&content)
+    }
+
+    /// Parse Config and NetworkConfig from a TOML string.
+    pub fn from_toml_str(s: &str) -> Result<(Config, NetworkConfig), String> {
+        let top: TomlTop = toml::from_str(s).map_err(|e| format!("Failed to parse TOML: {e}"))?;
+        top.config.gate_type.validate()?;
         Ok((top.config, top.network))
     }
 
@@ -444,6 +502,24 @@ mod tests {
         let gate = GateType::Vanilla.to_gate();
         assert_eq!(gate.num_witness_columns(), 3);
         assert_eq!(gate.num_selector_columns(), 5);
+
+        let gate = GateType::JellyfishTurbo.to_gate();
+        assert_eq!(gate.num_witness_columns(), 5);
+        assert_eq!(gate.num_selector_columns(), 13);
+
+        let gate = GateType::SuperLongSelector.to_gate();
+        assert_eq!(gate.num_witness_columns(), 3);
+        assert_eq!(gate.num_selector_columns(), 7);
+
+        let gate = GateType::Mock {
+            num_witness: 4,
+            degree: 3,
+        }
+        .to_gate();
+        assert_eq!(gate.num_witness_columns(), 4);
+        // mock_gate(n, d) creates a high-degree term with d witness factors + selector
+        // → degree d+1
+        assert_eq!(gate.degree(), 4);
     }
 
     #[test]
@@ -573,6 +649,167 @@ mod tests {
 
         for circuit in &circuits_seq {
             assert!(circuit.is_satisfied());
+        }
+    }
+
+    #[test]
+    fn test_gate_type_serde() {
+        // Vanilla (simple string)
+        let toml_str = r#"
+[config]
+log_num_instances = 2
+log_num_constraints = 10
+gate_type = "vanilla"
+log_num_parties = 2
+[network]
+hosts_file = "hosts.txt"
+"#;
+        let (config, _) = Config::from_toml_str(toml_str).unwrap();
+        assert_eq!(config.gate_type, GateType::Vanilla);
+
+        // JellyfishTurbo
+        let toml_str = toml_str.replace("\"vanilla\"", "\"jellyfish_turbo\"");
+        let (config, _) = Config::from_toml_str(&toml_str).unwrap();
+        assert_eq!(config.gate_type, GateType::JellyfishTurbo);
+
+        // SuperLongSelector
+        let toml_str2 = toml_str.replace("\"jellyfish_turbo\"", "\"super_long_selector\"");
+        let (config, _) = Config::from_toml_str(&toml_str2).unwrap();
+        assert_eq!(config.gate_type, GateType::SuperLongSelector);
+
+        // Mock (table form)
+        let toml_str = r#"
+[config]
+log_num_instances = 2
+log_num_constraints = 10
+log_num_parties = 2
+[config.gate_type.mock]
+num_witness = 4
+degree = 3
+[network]
+hosts_file = "hosts.txt"
+"#;
+        let (config, _) = Config::from_toml_str(toml_str).unwrap();
+        assert_eq!(
+            config.gate_type,
+            GateType::Mock {
+                num_witness: 4,
+                degree: 3
+            }
+        );
+    }
+
+    #[test]
+    fn test_mock_gate_toml_validation() {
+        // degree = 0 should be caught at parse time, not panic
+        let toml_str = r#"
+[config]
+log_num_instances = 0
+log_num_constraints = 8
+log_num_parties = 0
+[config.gate_type.mock]
+num_witness = 4
+degree = 0
+[network]
+hosts_file = "hosts.txt"
+"#;
+        let err = Config::from_toml_str(toml_str).unwrap_err();
+        assert!(
+            err.contains("degree must be >= 1"),
+            "expected degree validation error, got: {err}"
+        );
+
+        // num_witness = 0 should also be caught
+        let toml_str = r#"
+[config]
+log_num_instances = 0
+log_num_constraints = 8
+log_num_parties = 0
+[config.gate_type.mock]
+num_witness = 0
+degree = 3
+[network]
+hosts_file = "hosts.txt"
+"#;
+        let err = Config::from_toml_str(toml_str).unwrap_err();
+        assert!(
+            err.contains("num_witness must be >= 1"),
+            "expected num_witness validation error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_gate_type_name() {
+        assert_eq!(GateType::Vanilla.name(), "vanilla");
+        assert_eq!(GateType::JellyfishTurbo.name(), "jellyfish_turbo");
+        assert_eq!(GateType::SuperLongSelector.name(), "super_long_selector");
+        assert_eq!(
+            GateType::Mock {
+                num_witness: 4,
+                degree: 3
+            }
+            .name(),
+            "mock_w4_d3"
+        );
+    }
+
+    #[test]
+    fn test_build_mock_circuit_jellyfish_turbo() {
+        use ark_bn254::Fr;
+        let config = Config::new(0, 8, GateType::JellyfishTurbo, 0);
+        let circuit = config.build_mock_circuit::<Fr>();
+        assert_eq!(circuit.index.params.num_constraints, 256);
+        assert!(circuit.is_satisfied());
+    }
+
+    #[test]
+    fn test_build_mock_circuit_super_long_selector() {
+        use ark_bn254::Fr;
+        let config = Config::new(0, 8, GateType::SuperLongSelector, 0);
+        let circuit = config.build_mock_circuit::<Fr>();
+        assert_eq!(circuit.index.params.num_constraints, 256);
+        assert!(circuit.is_satisfied());
+    }
+
+    #[test]
+    fn test_build_mock_circuit_mock_gate() {
+        use ark_bn254::Fr;
+        let config = Config::new(
+            0,
+            8,
+            GateType::Mock {
+                num_witness: 4,
+                degree: 3,
+            },
+            0,
+        );
+        let circuit = config.build_mock_circuit::<Fr>();
+        assert_eq!(circuit.index.params.num_constraints, 256);
+        assert!(circuit.is_satisfied());
+    }
+
+    #[test]
+    fn test_build_partitioned_circuits_custom_gates() {
+        use ark_bn254::Fr;
+        for gate_type in [
+            GateType::JellyfishTurbo,
+            GateType::SuperLongSelector,
+            GateType::Mock {
+                num_witness: 4,
+                degree: 3,
+            },
+        ] {
+            let config = Config::new(2, 10, gate_type, 2);
+            let circuits = config.build_partitioned_circuits::<Fr>();
+            assert_eq!(circuits.len(), 4);
+            for circuit in &circuits {
+                assert_eq!(circuit.index.params.num_constraints, 256);
+                assert!(
+                    circuit.is_satisfied(),
+                    "circuit not satisfied for gate {:?}",
+                    gate_type
+                );
+            }
         }
     }
 }

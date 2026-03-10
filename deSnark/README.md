@@ -32,6 +32,7 @@ Workers bind first. The master connects last.
 | Binary | Purpose |
 | --- | --- |
 | `dist_bench` | Distributed benchmark runner over an `nv` range, with warmup and repeated timed reps |
+| `dist_bench_custom_gate` | Same as `dist_bench` but with `--gate-preset` CLI support and gate metadata in CSV |
 | `dist_prove_demo` | Interactive demo with logging |
 | `lightweight_bench` | Single-process phase breakdown for local profiling |
 
@@ -41,8 +42,9 @@ TOML examples are under `deSnark/examples/`.
 
 | File | Purpose |
 | --- | --- |
-| `bench_small.toml` | Sample benchmark config for `nv = 10..14`, `M = 8`, `K = 4` |
-| `bench_large.toml` | Sample benchmark config for `nv = 22..26`, `M = 8`, `K = 4` |
+| `bench_small.toml` | Sample benchmark config for `nv = 10..14`, `M = 8`, `K = 4` (vanilla gate) |
+| `bench_large.toml` | Sample benchmark config for `nv = 22..26`, `M = 8`, `K = 4` (vanilla gate) |
+| `bench_custom_gate.toml` | Sample benchmark config for custom gate (`jellyfish_turbo`) |
 | `demo_config.toml` | Demo config for `M = 4`, `N = 1024`, `K = 4` |
 | `hosts_4.txt` | Localhost host list for four parties |
 
@@ -53,7 +55,7 @@ Important config fields:
 | `log_num_instances` | `log2(M)`, number of instances folded together |
 | `log_num_constraints` | `log2(N)`, constraints per instance |
 | `log_num_parties` | `log2(K)`, number of sub-provers |
-| `gate_type` | Gate family, currently `"vanilla"` in the public examples |
+| `gate_type` | Gate family: `"vanilla"`, `"jellyfish_turbo"`, `"super_long_selector"`, or `{mock = {num_witness = N, degree = D}}` |
 | `srs_path` | Optional SRS cache path |
 
 ## Manual Execution
@@ -76,6 +78,30 @@ For an interactive wrapper, use:
 
 ```bash
 ./scripts/run_interactive_bench.sh
+```
+
+### Custom Gate Benchmark
+
+Supported gate presets: `vanilla`, `jellyfish_turbo`, `super_long_selector`, `mock`.
+
+When `M > 1`, gates that lack a solvable linear output term (`super_long_selector` and some `mock` configurations) are not supported and the prover returns an error. Use `M = 1` or choose a gate that supports shared selectors (e.g. `vanilla`, `jellyfish_turbo`).
+
+To benchmark with non-vanilla gates, use the same interactive wrapper and choose a non-`vanilla` gate preset when prompted:
+
+```bash
+./scripts/run_interactive_bench.sh
+```
+
+The wrapper automatically builds `dist_bench` for `vanilla` and `dist_bench_custom_gate` for non-vanilla presets.
+
+Or run the custom-gate binary manually:
+
+```bash
+cargo build --example dist_bench_custom_gate -p deSnark --release
+
+./target/release/examples/dist_bench_custom_gate \
+  --party 0 --nv-min 10 --nv-max 14 --reps 5 \
+  --gate-preset jellyfish_turbo deSnark/examples/bench_custom_gate.toml
 ```
 
 ## Raw CSV Output

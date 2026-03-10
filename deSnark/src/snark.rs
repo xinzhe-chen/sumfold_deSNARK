@@ -1515,10 +1515,23 @@ pub fn dist_prove<E: Pairing>(
     };
 
     // Phase 1a: Build circuits (not counted in setup_ms, matching HP)
+    // The proving path commits selectors once and folds M witness sets, so
+    // all M instances must share the same selectors.  For M == 1 any gate
+    // works; for M > 1 the gate must support shared-selector construction.
+    let gate = config.gate_type.to_gate();
+    if config.num_instances() > 1 && !gate.supports_shared_selectors() {
+        return Err(DeSnarkError::HyperPlonkError(format!(
+            "gate '{}' does not support shared-selector mode required for M > 1 \
+             (no solvable linear output term). Use M = 1 or a different gate.",
+            config.gate_type.name(),
+        )));
+    }
     let circuits = if use_instance_dist {
         config.build_instance_distributed_circuits::<E::ScalarField>(Net::party_id())
-    } else {
+    } else if config.num_instances() > 1 {
         config.build_partitioned_circuits_shared_sel::<E::ScalarField>()
+    } else {
+        config.build_partitioned_circuits::<E::ScalarField>()
     };
     let global_num_instances = config.num_instances();
     info!(
