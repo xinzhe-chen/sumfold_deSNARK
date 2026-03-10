@@ -6,21 +6,17 @@ This repository is for reproducible experiments and code inspection. It is not a
 
 ## What This Repo Contains
 
-There are two top-level systems in this repository:
+The main artifact is `deSnark/`, supported by the workspace crates `hyperplonk/`, `subroutines/`, `arithmetic/`, `transcript/`, `deNetwork/`, and `util/`.
 
-- `deSnark/`: the main artifact in this repo. This is the implementation of the distributed SumFold-based prover.
-- `HyperPianist/`: a bundled comparison baseline kept in-tree so both systems can be benchmarked from one checkout.
-
-If you only remember one thing: the main project is `deSnark`; `HyperPianist` is here only for comparison.
+If your goal is to understand or run the project, start from `deSnark`.
 
 ## Start Here
 
 If your goal is:
 
 - verify the repo is healthy: run `make release-check`
-- run the main benchmark (`deSnark`): run `./scripts/run_interactive_bench.sh`
-- run the comparison baseline (`HyperPianist`): run `./HyperPianist/scripts/run_interactive_bench.sh`
-- understand the main implementation: read [deSnark/README.md](deSnark/README.md)
+- run the main benchmark: run `./scripts/run_interactive_bench.sh`
+- understand the implementation: read [deSnark/README.md](deSnark/README.md)
 
 ## Terminology
 
@@ -51,9 +47,9 @@ make release-check
 - clippy with `-D warnings`
 - workspace tests
 - local Markdown link checks
-- minimal smoke benchmarks for both `deSnark` and `HyperPianist`
+- a minimal `deSnark` benchmark smoke test
 
-## The Main Workflow
+## Main Workflow
 
 ### 1. Validate The Repo
 
@@ -85,15 +81,7 @@ This script:
 - launches the distributed benchmark locally
 - writes CSV output to `target/bench_logs/`
 
-### 3. Run The Comparison Baseline
-
-```bash
-./HyperPianist/scripts/run_interactive_bench.sh
-```
-
-This script does the same kind of localhost benchmark setup for the bundled baseline and writes CSV output to `HyperPianist/target/bench_logs/`.
-
-## How The Two Benchmark Outputs Relate
+## Benchmark Output
 
 `deSnark` emits a CSV with 16 columns:
 
@@ -101,15 +89,7 @@ This script does the same kind of localhost benchmark setup for the bundled base
 nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb,d_commit_ms,sumfold_ms,sumcheck_ms,fold_ms,multi_open_ms
 ```
 
-`HyperPianist` emits a CSV with 11 columns:
-
-```text
-nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb
-```
-
-The first 11 columns are intentionally aligned so the two systems can be compared directly.
-
-The extra 5 `deSnark` columns are additional phase timings:
+The last 5 columns are additional phase timings:
 
 - `d_commit_ms`
 - `sumfold_ms`
@@ -120,9 +100,7 @@ The extra 5 `deSnark` columns are additional phase timings:
 ## Repository Map
 
 - [deSnark/README.md](deSnark/README.md): main implementation, binaries, config files, manual execution
-- [HyperPianist/README.md](HyperPianist/README.md): scope of the bundled comparison baseline
-- [HyperPianist/bench_results/README.md](HyperPianist/bench_results/README.md): policy for curated benchmark artifacts
-- [THIRD_PARTY.md](THIRD_PARTY.md): provenance and license notes for vendored code and the baseline snapshot
+- [THIRD_PARTY.md](THIRD_PARTY.md): provenance and license notes for vendored code
 - [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md): contribution expectations
 - [.github/SECURITY.md](.github/SECURITY.md): vulnerability reporting and scope
 
@@ -130,13 +108,12 @@ The extra 5 `deSnark` columns are additional phase timings:
 
 - This is a research artifact, not a production deployment target.
 - `deSnark/` is the main code path this repository is presenting.
-- `HyperPianist/` is preserved as a comparison baseline, not as the primary deliverable.
 - Historical benchmark CSVs are not kept in the public branch unless they come with enough provenance to reproduce them.
 
 ## License And Citation
 
 First-party code in this repository is released under the MIT license in [LICENSE](LICENSE).
 
-Bundled vendored code and baseline snapshots retain their own upstream licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
+Vendored code under `third_party/` retains its own upstream licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 If you cite or reference this repository, use [CITATION.cff](CITATION.cff).

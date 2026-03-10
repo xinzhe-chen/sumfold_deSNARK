@@ -26,7 +26,7 @@ That command is the expected baseline for contributions touching first-party cod
 - claiming production readiness or audited security properties
 - large benchmark-result dumps without provenance
 - replacing vendored third-party trees without documenting the source and license impact
-- drive-by refactors in the bundled `HyperPianist/` baseline that do not help artifact reproduction
+- broad vendored-code refactors that do not help correctness, reproducibility, or maintainability
 
 ## Benchmark Artifact Policy
 

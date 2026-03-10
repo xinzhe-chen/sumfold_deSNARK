@@ -153,7 +153,7 @@ for K in "${K_VALUES[@]}"; do
     K=$(echo "$K" | tr -d ' ')
     LOG_K=$(log2 "$K")
 
-    # Validate nMIN > log2(K) so effective_nv > 0 (consistent with HyperPianist)
+    # Validate nMIN > log2(K) so effective_nv > 0
     if (( K > 1 )); then
         (( NV_MIN > LOG_K )) || { echo -e "${RED}Error: nMIN ($NV_MIN) must be > log2(k=$K) = $LOG_K for K>1, skipping k=$K${NC}"; continue; }
     fi

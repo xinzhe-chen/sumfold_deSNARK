@@ -86,7 +86,7 @@ The `dist_bench` example emits:
 nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb,d_commit_ms,sumfold_ms,sumcheck_ms,fold_ms,multi_open_ms
 ```
 
-The first 11 columns match the comparison schema used by the bundled `HyperPianist` baseline. The last 5 columns expose per-phase timings for the public artifact.
+The first 11 columns follow the shared comparison schema used across prior evaluations. The last 5 columns expose per-phase timings for this public artifact.
 
 ## Timing Scope
 

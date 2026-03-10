@@ -15,7 +15,7 @@ test:
 	bash ./scripts/run_tests.sh
 
 readme-links:
-	python3 ./scripts/check_local_links.py README.md deSnark/README.md HyperPianist/README.md THIRD_PARTY.md .github/CONTRIBUTING.md .github/SECURITY.md .github/CODE_OF_CONDUCT.md HyperPianist/bench_results/README.md
+	python3 ./scripts/check_local_links.py README.md deSnark/README.md THIRD_PARTY.md .github/CONTRIBUTING.md .github/SECURITY.md .github/CODE_OF_CONDUCT.md
 
 bench-smoke:
 	bash ./scripts/smoke_bench.sh

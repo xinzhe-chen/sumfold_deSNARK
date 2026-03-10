@@ -1,5 +1,5 @@
 This repository contains first-party code under the MIT license below.
-Bundled code under `third_party/`, `HyperPianist/`, and `HyperPianist/third_party/`
+Bundled code under `third_party/`
 retains additional upstream license terms and provenance notes described in
 `THIRD_PARTY.md`.
 
