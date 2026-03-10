@@ -31,7 +31,7 @@ use subroutines::{
 };
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-type PCS = MultilinearKzgPCS<Bn254>;
+type Pcs = MultilinearKzgPCS<Bn254>;
 
 // ─── CPU time via getrusage
 // ───────────────────────────────────────────────────
@@ -213,10 +213,10 @@ fn bench_config(log_m: usize, log_nv: usize, log_k: usize) -> ConfigResult {
     let k = config.num_parties();
     let wall_start = Instant::now();
 
-    let (srs, s0) = timed(|| setup::<Bn254, PCS>(&config).expect("setup"));
+    let (srs, s0) = timed(|| setup::<Bn254, Pcs>(&config).expect("setup"));
     let ((pk, _vk, circs), s1) =
-        timed(|| make_circuit::<Bn254, PCS>(&config, &srs).expect("make_circuit"));
-    let (instances, s2) = timed(|| circuits_to_sumcheck::<Bn254, PCS>(&pk, &circs).expect("c2sc"));
+        timed(|| make_circuit::<Bn254, Pcs>(&config, &srs).expect("make_circuit"));
+    let (instances, s2) = timed(|| circuits_to_sumcheck::<Bn254, Pcs>(&pk, &circs).expect("c2sc"));
     let mut tr = <PolyIOP<Fr> as SumCheck<Fr>>::init_transcript();
     let (_, s3) = timed(|| prove_sumfold(instances, &mut tr).expect("prove_sumfold"));
 

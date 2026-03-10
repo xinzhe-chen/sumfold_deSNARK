@@ -949,7 +949,7 @@ pub fn dist_prove_sumcheck<E: Pairing, PCS: HyperPlonkPCS<E>>(
 /// # Returns
 /// * `VerifyingKey` - For verification
 /// * `Option<Proof>` - Final SNARK proof (`Some` on master, `None` on workers)
-
+///
 /// Verify the proof against circuit data (master-side eval check).
 ///
 /// Replays the full prover transcript (SumFold → HyperPianist) so that
@@ -1595,7 +1595,7 @@ pub fn dist_prove<E: Pairing>(
     if !use_standard_commit {
         if let Some(new_commits) = selector_commit_opts
             .iter()
-            .map(|c| c.clone())
+            .copied()
             .collect::<Option<Vec<_>>>()
         {
             vk.selector_commitments = new_commits.clone();
@@ -1707,10 +1707,8 @@ pub fn dist_prove<E: Pairing>(
     // ═══════════════════════════════════════════════════════════════
     // Extract witness commits for transcript binding.
     // Master has Some(...) from d_commit; workers have None.
-    let wit_commits_for_transcript: Vec<Commitment<E>> = witness_commit_opts
-        .iter()
-        .filter_map(|c| c.clone())
-        .collect();
+    let wit_commits_for_transcript: Vec<Commitment<E>> =
+        witness_commit_opts.iter().copied().flatten().collect();
 
     let (iop_proof, sumfold_ms, sumcheck_ms) = dist_prove_sumcheck::<E, MultilinearKzgPCS<E>>(
         polys,
@@ -1833,14 +1831,10 @@ pub fn dist_prove<E: Pairing>(
     let folded_wit_commit_opts: Vec<Option<Commitment<E>>>;
 
     if Net::am_master() {
-        let sel_commits: Vec<Commitment<E>> = selector_commit_opts
-            .iter()
-            .map(|c| c.clone().unwrap())
-            .collect();
-        let wit_commits: Vec<Commitment<E>> = witness_commit_opts
-            .iter()
-            .map(|c| c.clone().unwrap())
-            .collect();
+        let sel_commits: Vec<Commitment<E>> =
+            selector_commit_opts.iter().map(|c| (*c).unwrap()).collect();
+        let wit_commits: Vec<Commitment<E>> =
+            witness_commit_opts.iter().map(|c| (*c).unwrap()).collect();
 
         // Selectors are shared: scalar multiply with Σ_i eq(r_b,i)
         let eq_rb_sum_for_commits: E::ScalarField = eq_rb_vec.iter().copied().sum();
@@ -1957,7 +1951,7 @@ pub fn dist_prove<E: Pairing>(
         let folded_commits: Vec<Commitment<E>> = folded_sel_commit_opts
             .iter()
             .chain(folded_wit_commit_opts.iter())
-            .map(|c| c.clone().unwrap())
+            .map(|c| (*c).unwrap())
             .collect();
         for c in &folded_commits {
             pcs_transcript

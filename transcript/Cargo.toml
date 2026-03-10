@@ -1,8 +1,16 @@
 [package]
 name = "transcript"
-version = "0.1.0"
-edition = "2021"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+description = "Merlin-based transcript utilities for sumfold_deSNARK protocols."
+readme = "../README.md"
 
 [dependencies]
 

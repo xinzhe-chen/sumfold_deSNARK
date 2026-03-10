@@ -1,4 +1,16 @@
-//! deSnark - Distributed SNARK protocol implementation
+//! sumfold_deSNARK public entry points.
+//!
+//! This crate exposes the research prototype implementation of the distributed
+//! prover, along with the configuration structures used by the benchmark and
+//! demo binaries. The most relevant entry points are:
+//!
+//! - [`Config`] and [`NetworkConfig`] for loading benchmark/demo configuration.
+//! - [`dist_prove`] for running the distributed proving pipeline.
+//! - [`verify`] for standalone verification from a proof and verifying key.
+
+#![allow(clippy::default_constructed_unit_structs)] // protocol structs use PhantomData-heavy archived code paths
+#![allow(clippy::needless_range_loop)] // indexed loops make transcript and folding layouts explicit
+#![allow(clippy::type_complexity)] // proof-key tuples are part of the artifact-facing API
 
 pub mod d_sumfold;
 pub mod errors;

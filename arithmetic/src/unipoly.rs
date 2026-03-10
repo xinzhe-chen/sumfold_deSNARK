@@ -352,8 +352,8 @@ mod tests {
             .take(10)
             .collect::<Vec<_>>();
 
-        for i in 0..100 {
-            let poly = UniPoly::from_evals(&evals);
+        for _ in 0..100 {
+            let _poly = UniPoly::from_evals(&evals);
         }
     }
 }

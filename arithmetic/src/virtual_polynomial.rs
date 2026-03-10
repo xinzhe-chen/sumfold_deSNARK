@@ -736,7 +736,7 @@ mod test {
                     // Verify evaluation consistency
                     let point: Vec<Fr> = (0..(m - n)).map(|_| Fr::rand(&mut rng)).collect();
 
-                    for split_idx in 0..(1 << n) {
+                    for (split_idx, split) in splits.iter().enumerate() {
                         // Build full point by appending binary assignment for split_idx
                         let mut full_point = point.clone();
                         for bit in 0..n {
@@ -745,7 +745,7 @@ mod test {
                         }
 
                         let expected = vp.evaluate(&full_point)?;
-                        let actual = splits[split_idx].evaluate(&point)?;
+                        let actual = split.evaluate(&point)?;
 
                         assert_eq!(
                             expected, actual,
@@ -793,7 +793,7 @@ mod test {
         }
 
         // Verify each split evaluates to the original at the corresponding binary point
-        for split_idx in 0..(1 << nv) {
+        for (split_idx, split) in splits.iter().enumerate() {
             let mut binary_point = Vec::with_capacity(nv);
             for bit in 0..nv {
                 let bit_val = ((split_idx >> bit) & 1) as u64;
@@ -801,7 +801,7 @@ mod test {
             }
 
             let expected = vp.evaluate(&binary_point)?;
-            let actual = splits[split_idx].evaluate(&[])?;
+            let actual = split.evaluate(&[])?;
 
             assert_eq!(expected, actual, "Mismatch at split_idx={}", split_idx);
         }

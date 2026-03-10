@@ -6,6 +6,10 @@
 
 //! Main module for the HyperPlonk SNARK.
 
+#![allow(clippy::needless_range_loop)] // indexed loops keep folding layouts explicit
+#![allow(clippy::type_complexity)] // proof tuples are part of the protocol interface
+#![allow(clippy::too_many_arguments)] // prover entry points mirror protocol state
+
 use std::time::Duration;
 
 use crate::mock::MockCircuit;
@@ -109,7 +113,7 @@ where
         polys: Vec<(
             Vec<VirtualPolynomial<E::ScalarField>>,
             Vec<Vec<E::ScalarField>>,
-        )>, // (polys, folded_evals) pairs
+        )>,
         commitments: Vec<Vec<PCS::Commitment>>,
         q_proofs: Vec<IOPProof<E::ScalarField>>,
         batch_opening_proof: PCS::BatchProof,

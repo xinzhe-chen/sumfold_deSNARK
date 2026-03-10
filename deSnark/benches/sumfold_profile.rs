@@ -18,14 +18,12 @@
 use std::time::{Duration, Instant};
 
 use ark_bls12_381::Fr;
-use ark_ff::{PrimeField, Zero};
+use ark_ff::Zero;
 use ark_poly::DenseMultilinearExtension;
 use ark_std::{log2, test_rng};
-use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use arithmetic::{
-    build_eq_x_r, eq_poly::EqPolynomial, fix_variables, VPAuxInfo, VirtualPolynomial,
-};
+use arithmetic::{build_eq_x_r, fix_variables, VirtualPolynomial};
 use subroutines::poly_iop::{
     prelude::{PolyIOP, SumCheck},
     sum_check::{stage2_compute_sum_t, stage3_merge_split_mles, stage4_compose_poly},
@@ -33,7 +31,7 @@ use subroutines::poly_iop::{
 
 #[allow(unused_imports)]
 use ark_poly::MultilinearExtension;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
