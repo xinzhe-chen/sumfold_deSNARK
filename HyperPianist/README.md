@@ -44,15 +44,17 @@ For the comparison path used by this repository:
 
 That wrapper:
 
-- prompts for `nv`, `k`, and repetition settings
-- builds `hyperpianist-bench`
+- prompts for `nv`, `k`, repetition settings, and gate preset
+- builds `hyperpianist-bench` for `vanilla`, or `hyperpianist-bench-custom-gate` for non-vanilla gates
 - runs a localhost benchmark topology
 - writes CSV files under `HyperPianist/target/bench_logs/`
 
-The CSV schema exposed by the wrapper is:
+The vanilla CSV schema exposed by the wrapper is:
 
 ```text
 nv,M,K,setup_ms,prover_ms,verifier_ms,proof_bytes,comm_sent,comm_recv,avg_cpu_pct,peak_rss_mb
 ```
 
 `M` is always `1` for this baseline.
+
+For non-vanilla runs, the wrapper appends `gate_name` as an extra CSV column.

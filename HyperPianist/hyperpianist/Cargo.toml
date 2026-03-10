@@ -40,6 +40,10 @@ name = "hyperpianist-bench"
 path = "dTests/bench.rs"
 
 [[example]]
+name = "hyperpianist-bench-custom-gate"
+path = "dTests/bench_custom_gate.rs"
+
+[[example]]
 name = "e2e"
 path = "dTests/e2e.rs"
 

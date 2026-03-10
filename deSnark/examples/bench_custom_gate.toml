@@ -1,0 +1,28 @@
+# Benchmark: custom gate (jellyfish_turbo)
+#
+# M = 8 instances, K = 4 sub-provers
+#
+# Usage:
+#   dist_bench_custom_gate --party <ID> --nv-min 10 --nv-max 14 \
+#       deSnark/examples/bench_custom_gate.toml
+#
+# The gate can also be overridden via --gate-preset on the CLI.
+
+[config]
+# v = log2(M), M = 8 instances
+log_num_instances = 3
+
+# mu = log2(N) — placeholder, overridden by --nv-min / --nv-max
+log_num_constraints = 10
+
+# Gate type (jellyfish_turbo: 13 selectors, 5 witnesses, degree 6)
+gate_type = "jellyfish_turbo"
+
+# kappa = log2(K), K = 4 sub-provers
+log_num_parties = 2
+
+# SRS cache (generated once for nv_max, reused for smaller nv)
+srs_path = "srs_custom_gate.params"
+
+[network]
+hosts_file = "deSnark/examples/hosts_4.txt"

@@ -34,6 +34,62 @@ pub struct CustomizedGates {
 }
 
 impl CustomizedGates {
+    /// Construct a `CustomizedGates` from a raw term list.
+    ///
+    /// Each element is `(coefficient, optional_selector_index, witness_indices)`.
+    /// Returns an error if:
+    /// - the term list is empty,
+    /// - selector indices are not consecutive starting from 0,
+    /// - any witness index list is not sorted in non-decreasing order.
+    pub fn new(gates: Vec<(i64, Option<usize>, Vec<usize>)>) -> Result<Self, String> {
+        if gates.is_empty() {
+            return Err("gate term list must not be empty".into());
+        }
+        // Check selector indices are consecutive 0..n
+        let mut expected_sel = 0usize;
+        for (i, (_, q, ws)) in gates.iter().enumerate() {
+            if let Some(s) = q {
+                if *s != expected_sel {
+                    return Err(format!(
+                        "term {i}: expected selector index {expected_sel}, got {s}"
+                    ));
+                }
+                expected_sel += 1;
+            }
+            // Check witness indices are non-decreasing
+            for w in ws.windows(2) {
+                if w[0] > w[1] {
+                    return Err(format!(
+                        "term {i}: witness indices must be non-decreasing, got {:?}",
+                        ws
+                    ));
+                }
+            }
+        }
+        Ok(Self { gates })
+    }
+
+    /// Whether this gate has a solvable output term for shared-selector mode.
+    ///
+    /// A solvable output term is a gate term with exactly one witness column
+    /// and a selector, where that witness column does NOT appear in any other
+    /// term. This allows `new_with_shared_selectors` to solve for that column
+    /// given fixed selectors.
+    pub fn supports_shared_selectors(&self) -> bool {
+        self.gates.iter().enumerate().any(|(idx, (_coeff, q, ws))| {
+            if ws.len() == 1 && q.is_some() {
+                let wid = ws[0];
+                !self
+                    .gates
+                    .iter()
+                    .enumerate()
+                    .any(|(i2, (_, _, ws2))| i2 != idx && ws2.contains(&wid))
+            } else {
+                false
+            }
+        })
+    }
+
     /// The degree of the algebraic customized gate
     pub fn degree(&self) -> usize {
         let mut res = 0;
@@ -148,7 +204,15 @@ impl CustomizedGates {
 
     /// Generate a random gate for `num_witness` with a highest degree =
     /// `degree`
+    ///
+    /// # Panics
+    /// Panics if `degree < 1` or `num_witness < 1`.
     pub fn mock_gate(num_witness: usize, degree: usize) -> Self {
+        assert!(degree >= 1, "mock_gate degree must be >= 1, got {degree}");
+        assert!(
+            num_witness >= 1,
+            "mock_gate num_witness must be >= 1, got {num_witness}"
+        );
         let mut gates = vec![];
 
         let mut high_degree_term = vec![0; degree - 1];
